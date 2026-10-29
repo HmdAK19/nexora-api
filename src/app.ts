@@ -1,7 +1,10 @@
+import { createServer } from 'node:http';
+
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
+import { WebSocketServer } from 'ws';
 
 import { config } from './config.js';
 import { PERMISSIONS, type Permission } from './domain/index.js';
@@ -22,13 +25,15 @@ import {
   walletRouter,
   verificationRouter,
 } from './http/index.js';
+import { marketDataProvider } from './services/index.js';
 
 const authorize = (permission: Permission) => [requireAuth, requirePermission(permission)] as const;
+const createHelmetMiddleware = helmet as unknown as () => express.RequestHandler;
 
 export const createApp = () => {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
+  app.use(createHelmetMiddleware());
   app.use(
     cors({
       origin: config.clientOrigin,
@@ -62,3 +67,40 @@ export const createApp = () => {
   app.use(errorHandler);
   return app;
 };
+
+const server = createServer(createApp());
+const webSocketServer = new WebSocketServer({ server });
+
+webSocketServer.on('connection', (socket, request) => {
+  const url = new URL(request.url ?? '/ws', `http://${request.headers.host ?? 'localhost'}`);
+
+  if (url.pathname !== '/ws' && url.pathname !== '/api/ws') {
+    return socket.close(1008, 'Invalid path');
+  }
+
+  const pair = url.searchParams.get('symbol') ?? 'BTC-USDT';
+
+  if (!/^[A-Z0-9]{2,12}-[A-Z0-9]{2,12}$/.test(pair)) {
+    return socket.close(1008, 'Invalid market');
+  }
+
+  const closeUpstream = marketDataProvider.openTickerStream(pair, {
+    onTick: (ticker) => {
+      if (socket.readyState !== socket.OPEN) return;
+
+      socket.send(
+        JSON.stringify({
+          symbol: pair,
+          price: ticker.lastPrice,
+          change24h: ticker.change24h,
+          timestamp: ticker.timestamp,
+        })
+      );
+    },
+    onError: () => socket.close(1011, 'Market provider unavailable'),
+  });
+
+  socket.on('close', closeUpstream);
+});
+
+export default server;

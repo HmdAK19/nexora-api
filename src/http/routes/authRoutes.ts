@@ -15,7 +15,7 @@ const loginSchema = z.object({
 const cookieOptions = {
   httpOnly: true,
   secure: config.isProduction,
-  sameSite: 'lax' as const,
+  sameSite: config.isProduction ? ('none' as const) : ('lax' as const),
   maxAge: 7 * 86400000,
   path: '/api/auth',
 };
