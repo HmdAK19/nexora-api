@@ -1,0 +1,12 @@
+export { authRouter } from './authRoutes.js';
+export { bankCardRouter } from './bankCardRoutes.js';
+export { buyRouter } from './buyRoutes.js';
+export { conversionRouter } from './conversionRoutes.js';
+export { dashboardRouter } from './dashboardRoutes.js';
+export { marketRouter } from './marketRoutes.js';
+export { orderRouter } from './orderRoutes.js';
+export { referralRouter } from './referralRoutes.js';
+export { supportRouter } from './supportRoutes.js';
+export { walletRouter } from './walletRoutes.js';
+export { verificationRouter } from './verificationRoutes.js';
+export { adminRouter } from './adminRoutes.js';
