@@ -214,6 +214,21 @@ export class BinanceMarketDataProvider implements MarketDataProvider {
   ): () => void {
     const stream = `${providerSymbol(pair).toLowerCase()}@ticker`;
     const socket = new WebSocket(`${config.marketDataStreamUrl}/${stream}`);
+    let stopped = false;
+    let polling: NodeJS.Timeout | undefined;
+
+    const poll = async () => {
+      try {
+        handlers.onTick(await this.ticker(pair));
+      } catch (error) {
+        handlers.onError(error instanceof Error ? error : new Error('Market polling failed'));
+      }
+    };
+    const startPolling = () => {
+      if (stopped || polling) return;
+      void poll();
+      polling = setInterval(() => void poll(), 5_000);
+    };
 
     socket.on('message', (message) => {
       try {
@@ -222,9 +237,14 @@ export class BinanceMarketDataProvider implements MarketDataProvider {
         handlers.onError(error instanceof Error ? error : new Error('Invalid market stream payload'));
       }
     });
-    socket.on('error', (error) => handlers.onError(error));
+    socket.on('error', startPolling);
+    socket.on('close', startPolling);
 
-    return () => socket.close();
+    return () => {
+      stopped = true;
+      if (polling) clearInterval(polling);
+      socket.close();
+    };
   }
 }
 
