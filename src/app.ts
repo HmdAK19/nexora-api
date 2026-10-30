@@ -9,6 +9,7 @@ import { WebSocketServer } from 'ws';
 import { config } from './config.js';
 import { PERMISSIONS, type Permission } from './domain/index.js';
 import {
+  accountRouter,
   adminRouter,
   authRouter,
   bankCardRouter,
@@ -41,6 +42,10 @@ export const createApp = () => {
     })
   );
   app.use(
+    '/api/account/avatar',
+    express.raw({ limit: '1mb', type: ['image/jpeg', 'image/png', 'image/webp'] })
+  );
+  app.use(
     express.json({
       limit: '200kb',
     })
@@ -53,6 +58,7 @@ export const createApp = () => {
     })
   );
   app.use('/api/auth', authRouter);
+  app.use('/api/account', requireAuth, accountRouter);
   app.use('/api/admin', requireAuth, adminRouter);
   app.use('/api/cards', ...authorize(PERMISSIONS.cards), bankCardRouter);
   app.use('/api/buy', ...authorize(PERMISSIONS.purchase), buyRouter);

@@ -31,26 +31,26 @@ function handleSupportError(error: unknown, response: Response) {
 export const supportRouter = Router();
 supportRouter.use(requireAuth);
 
-supportRouter.get('/tickets', (request, response) =>
-  response.json(supportService.listTickets(request.userId ?? ''))
+supportRouter.get('/tickets', async (request, response) =>
+  response.json(await supportService.listTickets(request.userId ?? ''))
 );
 
-supportRouter.post('/tickets', writeRateLimit, (request, response, next) => {
+supportRouter.post('/tickets', writeRateLimit, async (request, response, next) => {
   try {
     const input = createSchema.parse(request.body);
     return response
       .status(201)
-      .json(supportService.createTicket(request.userId ?? '', input.subject, input.category, input.message));
+      .json(await supportService.createTicket(request.userId ?? '', input.subject, input.category, input.message));
   } catch (error) {
     if (handleSupportError(error, response)) return;
     return next(error);
   }
 });
 
-supportRouter.get('/tickets/:id', (request, response, next) => {
+supportRouter.get('/tickets/:id', async (request, response, next) => {
   try {
     return response.json(
-      supportService.getTicket(request.userId ?? '', ticketIdSchema.parse(request.params.id))
+      await supportService.getTicket(request.userId ?? '', ticketIdSchema.parse(request.params.id))
     );
   } catch (error) {
     if (handleSupportError(error, response)) return;
@@ -58,13 +58,13 @@ supportRouter.get('/tickets/:id', (request, response, next) => {
   }
 });
 
-supportRouter.post('/tickets/:id/messages', writeRateLimit, (request, response, next) => {
+supportRouter.post('/tickets/:id/messages', writeRateLimit, async (request, response, next) => {
   try {
     const input = replySchema.parse(request.body);
     return response
       .status(201)
       .json(
-        supportService.reply(request.userId ?? '', ticketIdSchema.parse(request.params.id), input.message)
+        await supportService.reply(request.userId ?? '', ticketIdSchema.parse(request.params.id), input.message)
       );
   } catch (error) {
     if (handleSupportError(error, response)) return;
@@ -72,10 +72,10 @@ supportRouter.post('/tickets/:id/messages', writeRateLimit, (request, response, 
   }
 });
 
-supportRouter.patch('/tickets/:id/close', writeRateLimit, (request, response, next) => {
+supportRouter.patch('/tickets/:id/close', writeRateLimit, async (request, response, next) => {
   try {
     return response.json(
-      supportService.closeTicket(request.userId ?? '', ticketIdSchema.parse(request.params.id))
+      await supportService.closeTicket(request.userId ?? '', ticketIdSchema.parse(request.params.id))
     );
   } catch (error) {
     if (handleSupportError(error, response)) return;

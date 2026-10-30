@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { OrderRecord } from '../domain/index.js';
-import { orderRepository, walletRepository } from '../repositories/index.js';
+import { orderRepository } from '../repositories/index.js';
 import { marketService } from './marketService.js';
 
 const feeRate = 0.001;
@@ -29,13 +29,13 @@ function publicOrder(order: OrderRecord) {
   return result;
 }
 export const orderService = {
-  list: (userId: string) => orderRepository.listByUser(userId).map(publicOrder),
-  create(
+  list: async (userId: string) => (await orderRepository.listByUser(userId)).map(publicOrder),
+  async create(
     userId: string,
     input: { symbol: string; side: 'buy' | 'sell'; type: 'limit' | 'market'; price: number; amount: number },
     idempotencyKey: string
   ) {
-    const previous = orderRepository.findByIdempotencyKey(userId, idempotencyKey);
+    const previous = await orderRepository.findByIdempotencyKey(userId, idempotencyKey);
     if (previous) {
       if (
         previous.symbol !== input.symbol ||
@@ -59,19 +59,11 @@ export const orderService = {
     const now = new Date().toISOString();
     let reservedAsset: string | undefined;
     let reservedAmount: number | undefined;
-    if (crosses) {
-      if (
-        !walletRepository.settleTrade(userId, base, quote, input.side, input.amount, quoteAmount, feeAmount)
-      )
-        throw new OrderError('INSUFFICIENT_BALANCE', 409);
-    } else {
+    if (!crosses) {
       reservedAsset = input.side === 'buy' ? quote : base;
       reservedAmount = input.side === 'buy' ? quoteAmount + feeAmount : input.amount;
-      if (!walletRepository.reserve(userId, reservedAsset, reservedAmount))
-        throw new OrderError('INSUFFICIENT_BALANCE', 409);
     }
-    return publicOrder(
-      orderRepository.create({
+    const result = await orderRepository.createWithSettlement({
         ...input,
         amount: round(input.amount),
         averagePrice: crosses ? executionPrice : 0,
@@ -87,21 +79,19 @@ export const orderService = {
         status: crosses ? 'filled' : 'open',
         updatedAt: now,
         userId,
-      })
-    );
-  },
-  cancel(userId: string, id: string) {
-    const order = orderRepository.findById(id);
-    if (!order || order.userId !== userId) throw new OrderError('ORDER_NOT_FOUND', 404);
-    if (order.status !== 'open') throw new OrderError('ORDER_NOT_OPEN', 409);
-    if (order.reservedAsset && order.reservedAmount)
-      walletRepository.release(userId, order.reservedAsset, order.reservedAmount);
-    const updated = orderRepository.update(id, {
-      status: 'cancelled',
-      updatedAt: new Date().toISOString(),
-      reservedAmount: 0,
     });
-    if (!updated) throw new OrderError('ORDER_NOT_FOUND', 404);
-    return publicOrder(updated);
+    if (result.kind === 'insufficient_balance') throw new OrderError('INSUFFICIENT_BALANCE', 409);
+    if (result.kind === 'existing') {
+      const existing = result.order;
+      if (existing.symbol !== input.symbol || existing.side !== input.side || existing.type !== input.type || existing.price !== input.price || existing.amount !== input.amount)
+        throw new OrderError('IDEMPOTENCY_KEY_REUSED', 409);
+    }
+    return publicOrder(result.order);
+  },
+  async cancel(userId: string, id: string) {
+    const result = await orderRepository.cancelWithRelease(userId, id, new Date().toISOString());
+    if (result.kind === 'not_found') throw new OrderError('ORDER_NOT_FOUND', 404);
+    if (result.kind === 'not_open') throw new OrderError('ORDER_NOT_OPEN', 409);
+    return publicOrder(result.order);
   },
 };

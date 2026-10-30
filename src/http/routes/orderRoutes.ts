@@ -28,21 +28,21 @@ function handleOrderError(error: unknown, response: Response) {
 }
 export const orderRouter = Router();
 orderRouter.use(requireAuth);
-orderRouter.get('/', (request, response) => response.json(orderService.list(request.userId ?? '')));
-orderRouter.post('/', writeLimit, (request, response, next) => {
+orderRouter.get('/', async (request, response) => response.json(await orderService.list(request.userId ?? '')));
+orderRouter.post('/', writeLimit, async (request, response, next) => {
   try {
     const input = orderSchema.parse(request.body);
     const key = keySchema.parse(request.header('Idempotency-Key'));
-    return response.status(201).json(orderService.create(request.userId ?? '', input, key));
+    return response.status(201).json(await orderService.create(request.userId ?? '', input, key));
   } catch (error) {
     if (handleOrderError(error, response)) return;
     return next(error);
   }
 });
-orderRouter.patch('/:id/cancel', writeLimit, (request, response, next) => {
+orderRouter.patch('/:id/cancel', writeLimit, async (request, response, next) => {
   try {
     return response.json(
-      orderService.cancel(request.userId ?? '', z.string().uuid().parse(request.params.id))
+      await orderService.cancel(request.userId ?? '', z.string().uuid().parse(request.params.id))
     );
   } catch (error) {
     if (handleOrderError(error, response)) return;

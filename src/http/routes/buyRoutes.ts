@@ -39,35 +39,35 @@ function handlePurchaseError(error: unknown, response: Response) {
 export const buyRouter = Router();
 buyRouter.use(requireAuth);
 
-buyRouter.post('/quotes', quoteRateLimit, (request, response, next) => {
+buyRouter.post('/quotes', quoteRateLimit, async (request, response, next) => {
   try {
     const input = quoteSchema.parse(request.body);
     return response
       .status(201)
-      .json(purchaseService.createQuote(request.userId ?? '', input.asset, input.fiatAmount));
+      .json(await purchaseService.createQuote(request.userId ?? '', input.asset, input.fiatAmount));
   } catch (error) {
     if (handlePurchaseError(error, response)) return;
     return next(error);
   }
 });
 
-buyRouter.post('/orders', orderRateLimit, (request, response, next) => {
+buyRouter.post('/orders', orderRateLimit, async (request, response, next) => {
   try {
     const input = orderSchema.parse(request.body);
     const idempotencyKey = idempotencyKeySchema.parse(request.header('Idempotency-Key'));
     return response
       .status(201)
-      .json(purchaseService.executeQuote(request.userId ?? '', input.quoteId, idempotencyKey));
+      .json(await purchaseService.executeQuote(request.userId ?? '', input.quoteId, idempotencyKey));
   } catch (error) {
     if (handlePurchaseError(error, response)) return;
     return next(error);
   }
 });
 
-buyRouter.get('/orders/:id', (request, response, next) => {
+buyRouter.get('/orders/:id', async (request, response, next) => {
   try {
     const orderId = z.string().uuid().parse(request.params.id);
-    return response.json(purchaseService.getOrder(request.userId ?? '', orderId));
+    return response.json(await purchaseService.getOrder(request.userId ?? '', orderId));
   } catch (error) {
     if (handlePurchaseError(error, response)) return;
     return next(error);

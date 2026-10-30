@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createApp } from './app.js';
 import { walletRepository } from './repositories/index.js';
+import { generateTotp } from './services/index.js';
 
 describe('Nexora API', () => {
   it('reports a healthy service', async () => {
@@ -175,7 +176,7 @@ describe('Nexora API', () => {
       .send({ email: 'demo@nexora.dev', password: 'Nexora123!' })
       .expect(200);
     const authorization = `Bearer ${String(login.body.accessToken)}`;
-    const beforeUsd = walletRepository.getBalance('user-demo', 'USD');
+    const beforeUsd = await walletRepository.getBalance('user-demo', 'USD');
     const before = await request(app).get('/api/wallet').set('Authorization', authorization).expect(200);
     const beforeBtc = before.body.find((asset: { symbol: string }) => asset.symbol === 'BTC') as {
       balance: number;
@@ -186,18 +187,20 @@ describe('Nexora API', () => {
       .send({ asset: 'BTC', fiatAmount: 1000, fiatCurrency: 'USD' })
       .expect(201);
     const idempotencyKey = 'test-idempotency-key-0001';
-    const first = await request(app)
-      .post('/api/buy/orders')
-      .set('Authorization', authorization)
-      .set('Idempotency-Key', idempotencyKey)
-      .send({ quoteId: quote.body.id })
-      .expect(201);
-    const retry = await request(app)
-      .post('/api/buy/orders')
-      .set('Authorization', authorization)
-      .set('Idempotency-Key', idempotencyKey)
-      .send({ quoteId: quote.body.id })
-      .expect(201);
+    const [first, retry] = await Promise.all([
+      request(app)
+        .post('/api/buy/orders')
+        .set('Authorization', authorization)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ quoteId: quote.body.id })
+        .expect(201),
+      request(app)
+        .post('/api/buy/orders')
+        .set('Authorization', authorization)
+        .set('Idempotency-Key', idempotencyKey)
+        .send({ quoteId: quote.body.id })
+        .expect(201),
+    ]);
 
     expect(first.body).toMatchObject({ asset: 'BTC', status: 'completed' });
     expect(retry.body.id).toBe(first.body.id);
@@ -207,7 +210,7 @@ describe('Nexora API', () => {
       balance: number;
     };
     expect(afterBtc.balance).toBeCloseTo(beforeBtc.balance + Number(first.body.assetAmount));
-    expect(walletRepository.getBalance('user-demo', 'USD')).toBe(beforeUsd - Number(quote.body.totalAmount));
+    expect(await walletRepository.getBalance('user-demo', 'USD')).toBe(beforeUsd - Number(quote.body.totalAmount));
   });
   it('settles an asset conversion exactly once for an idempotency key', async () => {
     const app = createApp();
@@ -216,8 +219,8 @@ describe('Nexora API', () => {
       .send({ email: 'demo@nexora.dev', password: 'Nexora123!' })
       .expect(200);
     const authorization = `Bearer ${String(login.body.accessToken)}`;
-    const beforeUsdt = walletRepository.getBalance('user-demo', 'USDT');
-    const beforeEth = walletRepository.getBalance('user-demo', 'ETH');
+    const beforeUsdt = await walletRepository.getBalance('user-demo', 'USDT');
+    const beforeEth = await walletRepository.getBalance('user-demo', 'ETH');
     const quote = await request(app)
       .post('/api/convert/quotes')
       .set('Authorization', authorization)
@@ -239,8 +242,8 @@ describe('Nexora API', () => {
 
     expect(first.body).toMatchObject({ fromAsset: 'USDT', status: 'completed', toAsset: 'ETH' });
     expect(retry.body.id).toBe(first.body.id);
-    expect(walletRepository.getBalance('user-demo', 'USDT')).toBeCloseTo(beforeUsdt - 100);
-    expect(walletRepository.getBalance('user-demo', 'ETH')).toBeCloseTo(
+    expect(await walletRepository.getBalance('user-demo', 'USDT')).toBeCloseTo(beforeUsdt - 100);
+    expect(await walletRepository.getBalance('user-demo', 'ETH')).toBeCloseTo(
       beforeEth + Number(first.body.destinationAmount)
     );
   });
@@ -251,8 +254,8 @@ describe('Nexora API', () => {
       .send({ email: 'demo@nexora.dev', password: 'Nexora123!' })
       .expect(200);
     const authorization = `Bearer ${String(login.body.accessToken)}`;
-    const beforeBtc = walletRepository.getBalance('user-demo', 'BTC');
-    const beforeEth = walletRepository.getBalance('user-demo', 'ETH');
+    const beforeBtc = await walletRepository.getBalance('user-demo', 'BTC');
+    const beforeEth = await walletRepository.getBalance('user-demo', 'ETH');
     const quote = await request(app)
       .post('/api/convert/quotes')
       .set('Authorization', authorization)
@@ -266,8 +269,8 @@ describe('Nexora API', () => {
       .expect(409);
 
     expect(response.body.code).toBe('INSUFFICIENT_BALANCE');
-    expect(walletRepository.getBalance('user-demo', 'BTC')).toBe(beforeBtc);
-    expect(walletRepository.getBalance('user-demo', 'ETH')).toBe(beforeEth);
+    expect(await walletRepository.getBalance('user-demo', 'BTC')).toBe(beforeBtc);
+    expect(await walletRepository.getBalance('user-demo', 'ETH')).toBe(beforeEth);
   });
   it('creates, replies to, lists and closes an owned support ticket', async () => {
     const app = createApp();
@@ -396,8 +399,8 @@ describe('Nexora API', () => {
       .send({ email: 'demo@nexora.dev', password: 'Nexora123!' })
       .expect(200);
     const authorization = `Bearer ${String(login.body.accessToken)}`;
-    const beforeUsdt = walletRepository.getBalance('user-demo', 'USDT');
-    const beforeBtc = walletRepository.getBalance('user-demo', 'BTC');
+    const beforeUsdt = await walletRepository.getBalance('user-demo', 'USDT');
+    const beforeBtc = await walletRepository.getBalance('user-demo', 'BTC');
     const marketOrder = await request(app)
       .post('/api/orders')
       .set('Authorization', authorization)
@@ -412,10 +415,10 @@ describe('Nexora API', () => {
       .expect(201);
     expect(marketOrder.body.status).toBe('filled');
     expect(retry.body.id).toBe(marketOrder.body.id);
-    expect(walletRepository.getBalance('user-demo', 'BTC')).toBeCloseTo(beforeBtc + 0.001);
-    expect(walletRepository.getBalance('user-demo', 'USDT')).toBeLessThan(beforeUsdt);
+    expect(await walletRepository.getBalance('user-demo', 'BTC')).toBeCloseTo(beforeBtc + 0.001);
+    expect(await walletRepository.getBalance('user-demo', 'USDT')).toBeLessThan(beforeUsdt);
 
-    const availableBeforeLimit = walletRepository.getAvailable('user-demo', 'USDT');
+    const availableBeforeLimit = await walletRepository.getAvailable('user-demo', 'USDT');
     const limitOrder = await request(app)
       .post('/api/orders')
       .set('Authorization', authorization)
@@ -423,12 +426,12 @@ describe('Nexora API', () => {
       .send({ amount: 0.001, price: 1000, side: 'buy', symbol: 'BTC-USDT', type: 'limit' })
       .expect(201);
     expect(limitOrder.body.status).toBe('open');
-    expect(walletRepository.getAvailable('user-demo', 'USDT')).toBeLessThan(availableBeforeLimit);
+    expect(await walletRepository.getAvailable('user-demo', 'USDT')).toBeLessThan(availableBeforeLimit);
     await request(app)
       .patch(`/api/orders/${String(limitOrder.body.id)}/cancel`)
       .set('Authorization', authorization)
       .expect(200);
-    expect(walletRepository.getAvailable('user-demo', 'USDT')).toBeCloseTo(availableBeforeLimit);
+    expect(await walletRepository.getAvailable('user-demo', 'USDT')).toBeCloseTo(availableBeforeLimit);
   });
   it('saves and submits an authenticated verification case', async () => {
     const app = createApp();
@@ -525,5 +528,200 @@ describe('Nexora API', () => {
     });
     expect(response.body.referrals).toHaveLength(3);
     expect(response.body.referrals[0]).not.toHaveProperty('userId');
+  });
+  it('lists, revokes and invalidates account sessions when the password changes', async () => {
+    const app = createApp();
+    const primary = await request(app)
+      .post('/api/auth/login')
+      .set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+    const secondary = await request(app)
+      .post('/api/auth/login')
+      .set('User-Agent', 'Mozilla/5.0 (Linux; Android 14) Firefox/120.0')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+    const primaryAuthorization = `Bearer ${String(primary.body.accessToken)}`;
+    const secondaryAuthorization = `Bearer ${String(secondary.body.accessToken)}`;
+
+    const security = await request(app)
+      .get('/api/account/security')
+      .set('Authorization', primaryAuthorization)
+      .expect(200);
+
+    expect(security.body.sessions.length).toBeGreaterThanOrEqual(2);
+    expect(security.body.sessions.filter((session: { current: boolean }) => session.current)).toHaveLength(1);
+    expect(security.body.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ browser: 'Chrome', current: true, device: 'Windows' }),
+        expect.objectContaining({ browser: 'Firefox', current: false, device: 'Android' }),
+      ])
+    );
+
+    const secondarySession = security.body.sessions.find(
+      (session: { browser: string; device: string }) =>
+        session.browser === 'Firefox' && session.device === 'Android'
+    ) as { id: string };
+    await request(app)
+      .delete(`/api/account/sessions/${secondarySession.id}`)
+      .set('Authorization', primaryAuthorization)
+      .expect(204);
+    await request(app).get('/api/auth/me').set('Authorization', secondaryAuthorization).expect(401);
+
+    const anotherSession = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+    await request(app)
+      .put('/api/account/password')
+      .set('Authorization', primaryAuthorization)
+      .send({ currentPassword: 'Nexora123!', newPassword: 'Nexora456!' })
+      .expect(204);
+    await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${String(anotherSession.body.accessToken)}`)
+      .expect(401);
+    await request(app)
+      .put('/api/account/password')
+      .set('Authorization', primaryAuthorization)
+      .send({ currentPassword: 'Nexora456!', newPassword: 'Nexora123!' })
+      .expect(204);
+  });
+  it('lists user-scoped notifications and persists read state', async () => {
+    const app = createApp();
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'demo@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+    const authorization = `Bearer ${String(login.body.accessToken)}`;
+
+    const initial = await request(app)
+      .get('/api/account/notifications')
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(initial.body.unreadCount).toBeGreaterThan(0);
+    expect(initial.body.items[0]).not.toHaveProperty('userId');
+
+    const unread = initial.body.items.find((item: { readAt: string | null }) => !item.readAt) as { id: string };
+    const updated = await request(app)
+      .patch(`/api/account/notifications/${unread.id}/read`)
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(updated.body.unreadCount).toBe(initial.body.unreadCount - 1);
+
+    await request(app)
+      .patch('/api/account/notifications/notification-security-customer/read')
+      .set('Authorization', authorization)
+      .expect(404);
+
+    const allRead = await request(app)
+      .post('/api/account/notifications/read-all')
+      .set('Authorization', authorization)
+      .expect(200);
+    expect(allRead.body.unreadCount).toBe(0);
+    expect(allRead.body.items.every((item: { readAt: string | null }) => Boolean(item.readAt))).toBe(true);
+  });
+  it('enforces TOTP after setup and consumes recovery codes once', async () => {
+    const app = createApp();
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+    const authorization = `Bearer ${String(login.body.accessToken)}`;
+    const setup = await request(app)
+      .post('/api/account/mfa/setup')
+      .set('Authorization', authorization)
+      .send({ currentPassword: 'Nexora123!' })
+      .expect(200);
+    expect(setup.body).toMatchObject({
+      otpauthUri: expect.stringMatching(/^otpauth:\/\/totp\/Nexora:/),
+      secret: expect.stringMatching(/^[A-Z2-7]+$/),
+      setupToken: expect.any(String),
+    });
+    const code = generateTotp(String(setup.body.secret));
+    const confirmed = await request(app)
+      .post('/api/account/mfa/confirm')
+      .set('Authorization', authorization)
+      .send({ code, setupToken: setup.body.setupToken })
+      .expect(200);
+    expect(confirmed.body.recoveryCodes).toHaveLength(10);
+
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(401)
+      .expect(({ body }) => expect(body.code).toBe('MFA_REQUIRED'));
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', mfaCode: code, password: 'Nexora123!' })
+      .expect(200);
+
+    const recoveryCode = String(confirmed.body.recoveryCodes[0]);
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!', recoveryCode })
+      .expect(200);
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!', recoveryCode })
+      .expect(401)
+      .expect(({ body }) => expect(body.code).toBe('INVALID_MFA_CODE'));
+
+    await request(app)
+      .delete('/api/account/mfa')
+      .set('Authorization', authorization)
+      .send({ code: generateTotp(String(setup.body.secret)), currentPassword: 'Nexora123!' })
+      .expect(204);
+  });
+  it('persists account profile, avatar and preferences behind the authenticated owner', async () => {
+    const app = createApp();
+    const login = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+    const authorization = `Bearer ${String(login.body.accessToken)}`;
+
+    const profile = await request(app)
+      .patch('/api/account/profile')
+      .set('Authorization', authorization)
+      .send({ name: 'Customer Updated', phone: '+98 912 345 6789' })
+      .expect(200);
+    expect(profile.body).toMatchObject({
+      avatarUrl: null,
+      email: 'customer@nexora.dev',
+      name: 'Customer Updated',
+      phone: '+98 912 345 6789',
+    });
+
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    const avatar = await request(app)
+      .put('/api/account/avatar')
+      .set('Authorization', authorization)
+      .set('Content-Type', 'image/png')
+      .send(png)
+      .expect(200);
+    expect(avatar.body.avatarUrl).toBe(`data:image/png;base64,${png.toString('base64')}`);
+
+    const preferences = {
+      colorMode: 'light',
+      language: 'en',
+      priceAlerts: false,
+      tradingNotifications: true,
+    };
+    await request(app)
+      .put('/api/account/preferences')
+      .set('Authorization', authorization)
+      .send(preferences)
+      .expect(200, preferences);
+    await request(app)
+      .get('/api/account/preferences')
+      .set('Authorization', authorization)
+      .expect(200, preferences);
+
+    await request(app)
+      .patch('/api/account/profile')
+      .set('Authorization', authorization)
+      .send({ name: 'Customer Demo', phone: '+98 912 000 0001' })
+      .expect(200);
   });
 });

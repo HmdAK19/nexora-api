@@ -2,6 +2,7 @@ export { requireAuth, requirePermission } from './authMiddleware.js';
 export { errorHandler } from './errorHandler.js';
 export {
   adminRouter,
+  accountRouter,
   authRouter,
   bankCardRouter,
   buyRouter,

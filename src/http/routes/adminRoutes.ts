@@ -40,30 +40,30 @@ function handleAdminError(error: unknown, response: Response) {
 
 export const adminRouter = Router();
 
-adminRouter.get('/overview', requirePermission(PERMISSIONS.admin.overviewRead), (_request, response) =>
-  response.json(adminService.getOverview())
+adminRouter.get('/overview', requirePermission(PERMISSIONS.admin.overviewRead), async (_request, response) =>
+  response.json(await adminService.getOverview())
 );
 
-adminRouter.get('/users', requirePermission(PERMISSIONS.admin.usersRead), (request, response) => {
+adminRouter.get('/users', requirePermission(PERMISSIONS.admin.usersRead), async (request, response) => {
   const { page, pageSize, search } = paginationSchema.parse(request.query);
-  return response.json(adminService.listUsers(search, page, pageSize));
+  return response.json(await adminService.listUsers(search, page, pageSize));
 });
 
 adminRouter.get(
   '/verifications',
   requirePermission(PERMISSIONS.admin.verificationRead),
-  (_request, response) => response.json(adminService.listVerifications())
+  async (_request, response) => response.json(await adminService.listVerifications())
 );
 
 adminRouter.post(
   '/verifications/:userId/decision',
   requirePermission(PERMISSIONS.admin.verificationReview),
   adminWriteLimit,
-  (request, response, next) => {
+  async (request, response, next) => {
     try {
       const { decision } = reviewSchema.parse(request.body);
       return response.json(
-        adminService.reviewVerification(
+        await adminService.reviewVerification(
           request.userId ?? '',
           userIdSchema.parse(request.params.userId),
           decision
@@ -76,21 +76,21 @@ adminRouter.post(
   }
 );
 
-adminRouter.get('/tickets', requirePermission(PERMISSIONS.admin.supportRead), (_request, response) =>
-  response.json(adminService.listTickets())
+adminRouter.get('/tickets', requirePermission(PERMISSIONS.admin.supportRead), async (_request, response) =>
+  response.json(await adminService.listTickets())
 );
 
 adminRouter.post(
   '/tickets/:ticketId/replies',
   requirePermission(PERMISSIONS.admin.supportReply),
   adminWriteLimit,
-  (request, response, next) => {
+  async (request, response, next) => {
     try {
       const { message } = replySchema.parse(request.body);
       return response
         .status(201)
         .json(
-          adminService.replyToTicket(
+          await adminService.replyToTicket(
             request.userId ?? '',
             ticketIdSchema.parse(request.params.ticketId),
             message
@@ -103,18 +103,18 @@ adminRouter.post(
   }
 );
 
-adminRouter.get('/settings', requirePermission(PERMISSIONS.admin.settingsRead), (_request, response) =>
-  response.json(adminService.getSettings())
+adminRouter.get('/settings', requirePermission(PERMISSIONS.admin.settingsRead), async (_request, response) =>
+  response.json(await adminService.getSettings())
 );
 
 adminRouter.put(
   '/settings',
   requirePermission(PERMISSIONS.admin.settingsManage),
   adminWriteLimit,
-  (request, response) =>
-    response.json(adminService.updateSettings(request.userId ?? '', settingsSchema.parse(request.body)))
+  async (request, response) =>
+    response.json(await adminService.updateSettings(request.userId ?? '', settingsSchema.parse(request.body)))
 );
 
-adminRouter.get('/audit-events', requirePermission(PERMISSIONS.admin.auditRead), (_request, response) =>
-  response.json(adminService.listAuditEvents())
+adminRouter.get('/audit-events', requirePermission(PERMISSIONS.admin.auditRead), async (_request, response) =>
+  response.json(await adminService.listAuditEvents())
 );

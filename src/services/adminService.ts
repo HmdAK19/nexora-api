@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { AdminSettingsRecord } from '../domain/index.js';
+import type { AdminSettingsRecord, SupportTicketRecord, UserRecord } from '../domain/index.js';
 import {
   adminSettingsRepository,
   auditRepository,
@@ -38,8 +38,8 @@ function recordAudit(
   });
 }
 
-function publicUser(user: NonNullable<ReturnType<typeof userRepository.findById>>) {
-  const balances = walletRepository.listBalances(user.id);
+async function publicUser(user: UserRecord) {
+  const balances = await walletRepository.listBalances(user.id);
 
   return {
     balance: (balances.USD ?? 0) + (balances.USDT ?? 0),
@@ -52,16 +52,16 @@ function publicUser(user: NonNullable<ReturnType<typeof userRepository.findById>
   };
 }
 
-function requiredUser(userId: string) {
-  const user = userRepository.findById(userId);
+async function requiredUser(userId: string) {
+  const user = await userRepository.findById(userId);
 
   if (!user) throw new AdminError('USER_NOT_FOUND', 404);
 
   return user;
 }
 
-function ticketSummary(ticket: NonNullable<ReturnType<typeof supportRepository.findTicketById>>) {
-  const messages = supportRepository.listMessages(ticket.id);
+async function ticketSummary(ticket: SupportTicketRecord) {
+  const messages = await supportRepository.listMessages(ticket.id);
   const lastMessage = messages.at(-1);
 
   return {
@@ -72,17 +72,17 @@ function ticketSummary(ticket: NonNullable<ReturnType<typeof supportRepository.f
     status: ticket.status,
     subject: ticket.subject,
     updatedAt: ticket.updatedAt,
-    user: publicUser(requiredUser(ticket.userId)),
+    user: await publicUser(await requiredUser(ticket.userId)),
   };
 }
 
 export const adminService = {
-  getOverview() {
-    const users = userRepository.list();
-    const orders = orderRepository.list();
+  async getOverview() {
+    const users = await userRepository.list();
+    const orders = await orderRepository.list();
     const today = new Date().toISOString().slice(0, 10);
-    const reviews = verificationRepository.list().filter(({ status }) => status === 'pending');
-    const tickets = supportRepository.listTickets().filter(({ status }) => status === 'waiting_for_support');
+    const reviews = (await verificationRepository.list()).filter(({ status }) => status === 'pending');
+    const tickets = (await supportRepository.listTickets()).filter(({ status }) => status === 'waiting_for_support');
 
     return {
       attention: {
@@ -107,10 +107,10 @@ export const adminService = {
     };
   },
 
-  listUsers(search: string, page: number, pageSize: number) {
+  async listUsers(search: string, page: number, pageSize: number) {
     const normalizedSearch = search.trim().toLowerCase();
-    const users = userRepository
-      .list()
+    const users = (await userRepository
+      .list())
       .filter((user) =>
         normalizedSearch
           ? `${user.id} ${user.name} ${user.email}`.toLowerCase().includes(normalizedSearch)
@@ -119,7 +119,7 @@ export const adminService = {
     const offset = (page - 1) * pageSize;
 
     return {
-      data: users.slice(offset, offset + pageSize).map(publicUser),
+      data: await Promise.all(users.slice(offset, offset + pageSize).map(publicUser)),
       hasMore: offset + pageSize < users.length,
       page,
       pageSize,
@@ -127,11 +127,11 @@ export const adminService = {
     };
   },
 
-  listVerifications() {
-    return verificationRepository
-      .list()
+  async listVerifications() {
+    return Promise.all((await verificationRepository
+      .list())
       .filter(({ status }) => status === 'pending')
-      .map((verification) => ({
+      .map(async (verification) => ({
         document: verification.document
           ? {
               mimeType: verification.document.mimeType,
@@ -141,50 +141,50 @@ export const adminService = {
           : null,
         status: verification.status,
         submittedAt: verification.submittedAt ?? verification.updatedAt,
-        user: publicUser(requiredUser(verification.userId)),
-      }));
+        user: await publicUser(await requiredUser(verification.userId)),
+      })));
   },
 
-  reviewVerification(actorId: string, userId: string, decision: 'approved' | 'rejected') {
-    const verification = verificationRepository.findByUser(userId);
+  async reviewVerification(actorId: string, userId: string, decision: 'approved' | 'rejected') {
+    const verification = await verificationRepository.findByUser(userId);
 
     if (!verification) throw new AdminError('VERIFICATION_NOT_FOUND', 404);
     if (verification.status !== 'pending') throw new AdminError('VERIFICATION_NOT_PENDING', 409);
 
     const status = decision === 'approved' ? 'verified' : 'rejected';
-    const result = verificationRepository.save({
+    const result = await verificationRepository.save({
       ...verification,
       status,
       updatedAt: new Date().toISOString(),
     });
 
-    recordAudit(actorId, `verification.${decision}`, 'verification', userId);
+    await recordAudit(actorId, `verification.${decision}`, 'verification', userId);
 
     return { status: result.status, userId };
   },
 
-  listTickets() {
-    return supportRepository.listTickets().map(ticketSummary);
+  async listTickets() {
+    return Promise.all((await supportRepository.listTickets()).map(ticketSummary));
   },
 
-  replyToTicket(actorId: string, ticketId: string, body: string) {
-    const ticket = supportRepository.findTicketById(ticketId);
+  async replyToTicket(actorId: string, ticketId: string, body: string) {
+    const ticket = await supportRepository.findTicketById(ticketId);
 
     if (!ticket) throw new AdminError('TICKET_NOT_FOUND', 404);
     if (ticket.status === 'closed') throw new AdminError('TICKET_CLOSED', 409);
 
     const createdAt = new Date().toISOString();
-    supportRepository.addMessage({
+    await supportRepository.addMessage({
       author: 'support',
       body,
       createdAt,
       id: randomUUID(),
       ticketId,
     });
-    supportRepository.updateTicket(ticketId, { status: 'waiting_for_user', updatedAt: createdAt });
-    recordAudit(actorId, 'support.reply', 'support-ticket', ticketId);
+    await supportRepository.updateTicket(ticketId, { status: 'waiting_for_user', updatedAt: createdAt });
+    await recordAudit(actorId, 'support.reply', 'support-ticket', ticketId);
 
-    const updatedTicket = supportRepository.findTicketById(ticketId);
+    const updatedTicket = await supportRepository.findTicketById(ticketId);
 
     if (!updatedTicket) throw new AdminError('TICKET_NOT_FOUND', 404);
 
@@ -193,9 +193,9 @@ export const adminService = {
 
   getSettings: () => adminSettingsRepository.get(),
 
-  updateSettings(actorId: string, input: Omit<AdminSettingsRecord, 'updatedAt'>) {
-    const result = adminSettingsRepository.update({ ...input, updatedAt: new Date().toISOString() });
-    recordAudit(actorId, 'settings.update', 'admin-settings', 'global');
+  async updateSettings(actorId: string, input: Omit<AdminSettingsRecord, 'updatedAt'>) {
+    const result = await adminSettingsRepository.update({ ...input, updatedAt: new Date().toISOString() });
+    await recordAudit(actorId, 'settings.update', 'admin-settings', 'global');
     return result;
   },
 

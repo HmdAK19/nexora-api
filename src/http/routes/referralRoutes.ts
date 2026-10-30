@@ -6,6 +6,6 @@ import { requireAuth } from '../authMiddleware.js';
 export const referralRouter = Router();
 
 referralRouter.use(requireAuth);
-referralRouter.get('/', (request, response) =>
-  response.json(referralService.getSummary(request.userId ?? ''))
+referralRouter.get('/', async (request, response) =>
+  response.json(await referralService.getSummary(request.userId ?? ''))
 );

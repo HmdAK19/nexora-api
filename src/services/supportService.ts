@@ -12,15 +12,15 @@ export class SupportError extends Error {
   }
 }
 
-function messagesFor(ticketId: string) {
-  return supportRepository.listMessages(ticketId).map(({ ticketId: _ticketId, ...message }) => {
+async function messagesFor(ticketId: string) {
+  return (await supportRepository.listMessages(ticketId)).map(({ ticketId: _ticketId, ...message }) => {
     void _ticketId;
     return message;
   });
 }
 
-function summary(ticket: SupportTicketRecord) {
-  const messages = messagesFor(ticket.id);
+async function summary(ticket: SupportTicketRecord) {
+  const messages = await messagesFor(ticket.id);
   const lastMessage = messages.at(-1);
   const { userId: _userId, ...publicTicket } = ticket;
   void _userId;
@@ -31,12 +31,12 @@ function summary(ticket: SupportTicketRecord) {
   };
 }
 
-function details(ticket: SupportTicketRecord) {
-  return { ...summary(ticket), messages: messagesFor(ticket.id) };
+async function details(ticket: SupportTicketRecord) {
+  return { ...(await summary(ticket)), messages: await messagesFor(ticket.id) };
 }
 
-function ownedTicket(userId: string, ticketId: string) {
-  const ticket = supportRepository.findTicketById(ticketId);
+async function ownedTicket(userId: string, ticketId: string) {
+  const ticket = await supportRepository.findTicketById(ticketId);
 
   if (!ticket || ticket.userId !== userId) throw new SupportError('TICKET_NOT_FOUND', 404);
 
@@ -44,14 +44,15 @@ function ownedTicket(userId: string, ticketId: string) {
 }
 
 export const supportService = {
-  listTickets: (userId: string) => supportRepository.listTicketsByUser(userId).map(summary),
+  listTickets: async (userId: string) =>
+    Promise.all((await supportRepository.listTicketsByUser(userId)).map(summary)),
 
-  getTicket: (userId: string, ticketId: string) => details(ownedTicket(userId, ticketId)),
+  getTicket: async (userId: string, ticketId: string) => details(await ownedTicket(userId, ticketId)),
 
-  createTicket(userId: string, subject: string, category: SupportCategory, body: string) {
+  async createTicket(userId: string, subject: string, category: SupportCategory, body: string) {
     const now = new Date().toISOString();
     const ticketId = randomUUID();
-    const ticket = supportRepository.createTicket(
+    const ticket = await supportRepository.createTicket(
       {
         category,
         createdAt: now,
@@ -73,29 +74,29 @@ export const supportService = {
     return details(ticket);
   },
 
-  reply(userId: string, ticketId: string, body: string) {
-    const ticket = ownedTicket(userId, ticketId);
+  async reply(userId: string, ticketId: string, body: string) {
+    const ticket = await ownedTicket(userId, ticketId);
 
     if (ticket.status === 'closed') throw new SupportError('TICKET_CLOSED', 409);
 
     const now = new Date().toISOString();
-    supportRepository.addMessage({
+    await supportRepository.addMessage({
       author: 'user',
       body,
       createdAt: now,
       id: randomUUID(),
       ticketId,
     });
-    supportRepository.updateTicket(ticketId, { status: 'waiting_for_support', updatedAt: now });
+    await supportRepository.updateTicket(ticketId, { status: 'waiting_for_support', updatedAt: now });
 
     return details(ticket);
   },
 
-  closeTicket(userId: string, ticketId: string) {
-    const ticket = ownedTicket(userId, ticketId);
+  async closeTicket(userId: string, ticketId: string) {
+    const ticket = await ownedTicket(userId, ticketId);
 
     if (ticket.status !== 'closed') {
-      supportRepository.updateTicket(ticketId, {
+      await supportRepository.updateTicket(ticketId, {
         status: 'closed',
         updatedAt: new Date().toISOString(),
       });

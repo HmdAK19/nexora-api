@@ -25,24 +25,24 @@ const transferSchema = z
   });
 export const walletRouter = Router();
 walletRouter.use(requireAuth);
-walletRouter.get('/', (request, response) =>
+walletRouter.get('/', async (request, response) =>
   response.json(
-    markets.slice(0, 7).map((market, index) => {
-      const balance = walletRepository.getBalance(request.userId ?? '', market.symbol);
-      const locked = walletRepository.getLocked(request.userId ?? '', market.symbol);
+    await Promise.all(markets.slice(0, 7).map(async (market) => {
+      const balance = await walletRepository.getBalance(request.userId ?? '', market.symbol);
+      const locked = await walletRepository.getLocked(request.userId ?? '', market.symbol);
       return {
         ...market,
         balance,
         available: balance - locked,
         value: balance * market.price,
       };
-    })
+    }))
   )
 );
-walletRouter.get('/transactions', (request, response) =>
-  response.json(walletRepository.listTransactions(request.userId ?? ''))
+walletRouter.get('/transactions', async (request, response) =>
+  response.json(await walletRepository.listTransactions(request.userId ?? ''))
 );
-walletRouter.post('/transfers', (request, response, next) => {
+walletRouter.post('/transfers', async (request, response, next) => {
   try {
     const input = transferSchema.parse(request.body);
     const marketIndex = markets.findIndex((market) => market.symbol === input.asset);
@@ -52,15 +52,7 @@ walletRouter.post('/transfers', (request, response, next) => {
         message: 'Asset is not supported',
       });
     const userId = request.userId ?? '';
-    const balance = walletRepository.getBalance(userId, input.asset);
-    const locked = walletRepository.getLocked(userId, input.asset);
-    if (input.type === 'withdraw' && input.amount > balance - locked) {
-      return response.status(409).json({
-        code: 'INSUFFICIENT_BALANCE',
-        message: 'Amount exceeds the available balance',
-      });
-    }
-    const transaction = walletRepository.createTransaction({
+    const result = await walletRepository.executeTransfer({
       id: randomUUID(),
       userId,
       asset: input.asset,
@@ -75,12 +67,13 @@ walletRouter.post('/transfers', (request, response, next) => {
       status: 'completed',
       createdAt: new Date().toISOString(),
     });
-    walletRepository.adjustBalance(
-      userId,
-      input.asset,
-      input.type === 'deposit' ? input.amount : -input.amount
-    );
-    return response.status(201).json(transaction);
+    if (result.kind === 'insufficient_balance') {
+      return response.status(409).json({
+        code: 'INSUFFICIENT_BALANCE',
+        message: 'Amount exceeds the available balance',
+      });
+    }
+    return response.status(201).json(result.transaction);
   } catch (error) {
     return next(error);
   }

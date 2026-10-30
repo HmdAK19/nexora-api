@@ -46,28 +46,28 @@ function handle(error: unknown, response: Response) {
 
 export const bankCardRouter = Router();
 bankCardRouter.use(requireAuth);
-bankCardRouter.get('/', (request, response) => response.json(bankCardService.list(request.userId ?? '')));
-bankCardRouter.post('/', writeLimit, (request, response, next) => {
+bankCardRouter.get('/', async (request, response) => response.json(await bankCardService.list(request.userId ?? '')));
+bankCardRouter.post('/', writeLimit, async (request, response, next) => {
   try {
     const input = createSchema.parse(request.body);
-    return response.status(201).json(bankCardService.create(request.userId ?? '', input.number, input.iban));
+    return response.status(201).json(await bankCardService.create(request.userId ?? '', input.number, input.iban));
   } catch (error) {
     if (handle(error, response)) return;
     return next(error);
   }
 });
-bankCardRouter.delete('/:id', writeLimit, (request, response, next) => {
+bankCardRouter.delete('/:id', writeLimit, async (request, response, next) => {
   try {
-    bankCardService.delete(request.userId ?? '', idSchema.parse(request.params.id));
+    await bankCardService.delete(request.userId ?? '', idSchema.parse(request.params.id));
     return response.status(204).end();
   } catch (error) {
     if (handle(error, response)) return;
     return next(error);
   }
 });
-bankCardRouter.patch('/:id/default', writeLimit, (request, response, next) => {
+bankCardRouter.patch('/:id/default', writeLimit, async (request, response, next) => {
   try {
-    return response.json(bankCardService.setDefault(request.userId ?? '', idSchema.parse(request.params.id)));
+    return response.json(await bankCardService.setDefault(request.userId ?? '', idSchema.parse(request.params.id)));
   } catch (error) {
     if (handle(error, response)) return;
     return next(error);

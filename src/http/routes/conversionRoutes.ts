@@ -39,13 +39,13 @@ function handleConversionError(error: unknown, response: Response) {
 export const conversionRouter = Router();
 conversionRouter.use(requireAuth);
 
-conversionRouter.post('/quotes', quoteRateLimit, (request, response, next) => {
+conversionRouter.post('/quotes', quoteRateLimit, async (request, response, next) => {
   try {
     const input = quoteSchema.parse(request.body);
     return response
       .status(201)
       .json(
-        conversionService.createQuote(
+        await conversionService.createQuote(
           request.userId ?? '',
           input.fromAsset,
           input.toAsset,
@@ -58,23 +58,23 @@ conversionRouter.post('/quotes', quoteRateLimit, (request, response, next) => {
   }
 });
 
-conversionRouter.post('/orders', orderRateLimit, (request, response, next) => {
+conversionRouter.post('/orders', orderRateLimit, async (request, response, next) => {
   try {
     const input = orderSchema.parse(request.body);
     const idempotencyKey = idempotencyKeySchema.parse(request.header('Idempotency-Key'));
     return response
       .status(201)
-      .json(conversionService.executeQuote(request.userId ?? '', input.quoteId, idempotencyKey));
+      .json(await conversionService.executeQuote(request.userId ?? '', input.quoteId, idempotencyKey));
   } catch (error) {
     if (handleConversionError(error, response)) return;
     return next(error);
   }
 });
 
-conversionRouter.get('/orders/:id', (request, response, next) => {
+conversionRouter.get('/orders/:id', async (request, response, next) => {
   try {
     const orderId = z.string().uuid().parse(request.params.id);
-    return response.json(conversionService.getOrder(request.userId ?? '', orderId));
+    return response.json(await conversionService.getOrder(request.userId ?? '', orderId));
   } catch (error) {
     if (handleConversionError(error, response)) return;
     return next(error);

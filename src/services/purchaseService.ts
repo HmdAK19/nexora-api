@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { markets } from '../data/index.js';
 import type { PurchaseOrderRecord, PurchaseQuoteRecord } from '../domain/index.js';
-import { purchaseRepository, walletRepository } from '../repositories/index.js';
+import { purchaseRepository } from '../repositories/index.js';
 
 const supportedAssets = new Set(['BTC', 'ETH', 'USDT']);
 const quoteLifetimeMs = 20_000;
@@ -38,7 +38,7 @@ function publicOrder(order: PurchaseOrderRecord) {
 }
 
 export const purchaseService = {
-  createQuote(userId: string, asset: string, fiatAmount: number) {
+  async createQuote(userId: string, asset: string, fiatAmount: number) {
     if (!supportedAssets.has(asset)) {
       throw new PurchaseError('ASSET_NOT_SUPPORTED', 400);
     }
@@ -50,7 +50,7 @@ export const purchaseService = {
     }
 
     const feeAmount = round(fiatAmount * feeRate, 2);
-    const quote = purchaseRepository.createQuote({
+    const quote = await purchaseRepository.createQuote({
       id: randomUUID(),
       userId,
       asset,
@@ -66,66 +66,30 @@ export const purchaseService = {
     return publicQuote(quote);
   },
 
-  executeQuote(userId: string, quoteId: string, idempotencyKey: string) {
-    const previousOrder = purchaseRepository.findOrderByIdempotencyKey(userId, idempotencyKey);
-
-    if (previousOrder) {
-      if (previousOrder.quoteId !== quoteId) {
-        throw new PurchaseError('IDEMPOTENCY_KEY_REUSED', 409);
-      }
-
-      return publicOrder(previousOrder);
-    }
-
-    const quote = purchaseRepository.findQuoteById(quoteId);
-
-    if (!quote || quote.userId !== userId) {
-      throw new PurchaseError('QUOTE_NOT_FOUND', 404);
-    }
-
-    if (Date.parse(quote.expiresAt) <= Date.now()) {
-      throw new PurchaseError('QUOTE_EXPIRED', 410);
-    }
-
-    if (walletRepository.getBalance(userId, 'USD') < quote.totalAmount) {
-      throw new PurchaseError('INSUFFICIENT_BALANCE', 409);
-    }
-
+  async executeQuote(userId: string, quoteId: string, idempotencyKey: string) {
     const consumedAt = new Date().toISOString();
-
-    if (!purchaseRepository.consumeQuote(quote.id, consumedAt)) {
-      throw new PurchaseError('QUOTE_ALREADY_USED', 409);
-    }
-
-    const order = purchaseRepository.createOrder({
+    const result = await purchaseRepository.executeQuote({
       id: randomUUID(),
       userId,
-      asset: quote.asset,
-      assetAmount: quote.assetAmount,
+      asset: '',
+      assetAmount: 0,
       createdAt: consumedAt,
-      fiatAmount: quote.fiatAmount,
-      fiatCurrency: quote.fiatCurrency,
+      fiatAmount: 0,
+      fiatCurrency: 'USD',
       idempotencyKey,
-      quoteId: quote.id,
+      quoteId,
       status: 'completed',
-    });
-
-    const settled = walletRepository.settlePurchase(
-      userId,
-      quote.totalAmount,
-      quote.asset,
-      quote.assetAmount
-    );
-
-    if (!settled) {
-      throw new PurchaseError('INSUFFICIENT_BALANCE', 409);
-    }
-
-    return publicOrder(order);
+    }, consumedAt);
+    if (result.kind === 'not_found') throw new PurchaseError('QUOTE_NOT_FOUND', 404);
+    if (result.kind === 'expired') throw new PurchaseError('QUOTE_EXPIRED', 410);
+    if (result.kind === 'already_used') throw new PurchaseError('QUOTE_ALREADY_USED', 409);
+    if (result.kind === 'insufficient_balance') throw new PurchaseError('INSUFFICIENT_BALANCE', 409);
+    if (result.kind === 'idempotency_conflict') throw new PurchaseError('IDEMPOTENCY_KEY_REUSED', 409);
+    return publicOrder(result.order);
   },
 
-  getOrder(userId: string, orderId: string) {
-    const order = purchaseRepository.findOrderById(orderId);
+  async getOrder(userId: string, orderId: string) {
+    const order = await purchaseRepository.findOrderById(orderId);
 
     if (!order || order.userId !== userId) {
       throw new PurchaseError('PURCHASE_NOT_FOUND', 404);

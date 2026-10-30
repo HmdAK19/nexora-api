@@ -31,13 +31,13 @@ function handle(error: unknown, response: Response) {
 
 export const verificationRouter = Router();
 verificationRouter.use(requireAuth);
-verificationRouter.get('/', (request, response) =>
-  response.json(verificationService.get(request.userId ?? ''))
+verificationRouter.get('/', async (request, response) =>
+  response.json(await verificationService.get(request.userId ?? ''))
 );
-verificationRouter.put('/profile', writeLimit, (request, response, next) => {
+verificationRouter.put('/profile', writeLimit, async (request, response, next) => {
   try {
     return response.json(
-      verificationService.saveProfile(request.userId ?? '', profileSchema.parse(request.body))
+      await verificationService.saveProfile(request.userId ?? '', profileSchema.parse(request.body))
     );
   } catch (error) {
     if (handle(error, response)) return;
@@ -48,7 +48,7 @@ verificationRouter.post(
   '/document',
   writeLimit,
   express.raw({ limit: '5mb', type: ['application/pdf', 'image/jpeg', 'image/png'] }),
-  (request, response, next) => {
+  async (request, response, next) => {
     try {
       const mimeType = String(request.header('Content-Type') ?? '').split(';')[0] ?? '';
       if (!allowedMimeTypes.has(mimeType))
@@ -61,16 +61,23 @@ verificationRouter.post(
       const name = documentNameSchema.parse(decodeURIComponent(request.header('X-Document-Name') ?? ''));
       return response
         .status(201)
-        .json(verificationService.saveDocument(request.userId ?? '', { mimeType, name, size: body.length }));
+        .json(
+          await verificationService.saveDocument(request.userId ?? '', {
+            data: body,
+            mimeType,
+            name,
+            size: body.length,
+          })
+        );
     } catch (error) {
       if (handle(error, response)) return;
       return next(error);
     }
   }
 );
-verificationRouter.post('/submit', writeLimit, (request, response, next) => {
+verificationRouter.post('/submit', writeLimit, async (request, response, next) => {
   try {
-    return response.json(verificationService.submit(request.userId ?? ''));
+    return response.json(await verificationService.submit(request.userId ?? ''));
   } catch (error) {
     if (handle(error, response)) return;
     return next(error);

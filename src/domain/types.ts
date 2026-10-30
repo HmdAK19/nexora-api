@@ -26,6 +26,7 @@ export interface UserRecord {
   name: string;
   email: string;
   passwordHash: string;
+  passwordChangedAt: string;
   level: 'basic' | 'verified' | 'advanced';
   role: UserRole;
   status: 'active' | 'blocked';
@@ -54,6 +55,47 @@ export interface TokenClaims {
   email: string;
   type: 'access' | 'refresh';
   jti?: string;
+}
+
+export interface SessionContext {
+  browser: string;
+  device: string;
+  ipAddress: string;
+  location: string;
+}
+
+export interface SessionRecord extends SessionContext {
+  createdAt: string;
+  expiresAt: number;
+  id: string;
+  lastActiveAt: string;
+  userId: string;
+}
+
+export interface AccountProfileRecord {
+  avatar?: { data: Buffer; mimeType: 'image/jpeg' | 'image/png' | 'image/webp' };
+  phone: string;
+  userId: string;
+}
+
+export interface AccountPreferencesRecord {
+  colorMode: 'dark' | 'light';
+  language: 'en' | 'fa';
+  priceAlerts: boolean;
+  tradingNotifications: boolean;
+  userId: string;
+}
+
+export type NotificationKind = 'order_placed' | 'security_recommendation' | 'verification_reminder';
+
+export interface NotificationRecord {
+  actionPath: string;
+  createdAt: string;
+  id: string;
+  kind: NotificationKind;
+  metadata: Record<string, string>;
+  readAt: string | null;
+  userId: string;
 }
 export interface OrderRecord {
   id: string;
@@ -163,6 +205,7 @@ export interface SupportTicketRecord {
 export interface VerificationRecord {
   country?: 'AE' | 'IR' | 'TR';
   document?: { id: string; mimeType: string; name: string; size: number; uploadedAt: string };
+  documentData?: Buffer;
   fullName?: string;
   nationalId?: string;
   status: 'draft' | 'not_started' | 'pending' | 'ready' | 'rejected' | 'verified';

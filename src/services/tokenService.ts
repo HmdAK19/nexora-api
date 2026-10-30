@@ -2,29 +2,30 @@ import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 
 import { config } from '../config.js';
-import type { TokenClaims, UserRecord } from '../domain/index.js';
+import type { SessionContext, SessionRecord, TokenClaims, UserRecord } from '../domain/index.js';
+import { sessionRepository } from '../repositories/index.js';
 
-const activeRefreshTokens = new Map<
-  string,
-  {
-    userId: string;
-    expiresAt: number;
-  }
->();
+const defaultContext: SessionContext = {
+  browser: 'Unknown browser',
+  device: 'Unknown device',
+  ipAddress: 'Unknown',
+  location: 'Unknown',
+};
 export const tokenService = {
-  createSession(user: UserRecord) {
+  async createSession(user: UserRecord, context: SessionContext = defaultContext) {
+    const jti = randomUUID();
     const accessToken = jwt.sign(
       {
         sub: user.id,
         email: user.email,
         type: 'access',
+        jti,
       } satisfies TokenClaims,
       config.accessTokenSecret,
       {
         expiresIn: '15m',
       }
     );
-    const jti = randomUUID();
     const refreshToken = jwt.sign(
       {
         sub: user.id,
@@ -37,7 +38,12 @@ export const tokenService = {
         expiresIn: '7d',
       }
     );
-    activeRefreshTokens.set(jti, {
+    const now = new Date().toISOString();
+    await sessionRepository.create({
+      ...context,
+      createdAt: now,
+      id: jti,
+      lastActiveAt: now,
       userId: user.id,
       expiresAt: Date.now() + 7 * 86400000,
     });
@@ -46,24 +52,42 @@ export const tokenService = {
       refreshToken,
     };
   },
-  verifyAccess(token: string): TokenClaims {
+  async verifyAccess(token: string): Promise<TokenClaims> {
     const claims = jwt.verify(token, config.accessTokenSecret) as TokenClaims;
-    if (claims.type !== 'access') throw new Error('INVALID_TOKEN_TYPE');
+    if (claims.type !== 'access' || !claims.jti) throw new Error('INVALID_TOKEN_TYPE');
+    const session = await sessionRepository.findById(claims.jti);
+    if (!session || session.userId !== claims.sub || session.expiresAt <= Date.now()) {
+      throw new Error('SESSION_REVOKED');
+    }
+    await sessionRepository.touch(claims.jti, new Date().toISOString());
     return claims;
   },
-  rotateRefresh(token: string) {
+  async rotateRefresh(token: string) {
     const claims = jwt.verify(token, config.refreshTokenSecret) as TokenClaims;
-    if (claims.type !== 'refresh' || !claims.jti || !activeRefreshTokens.has(claims.jti))
+    if (claims.type !== 'refresh' || !claims.jti) throw new Error('INVALID_REFRESH_TOKEN');
+    const session = await sessionRepository.findById(claims.jti);
+    if (!session || session.userId !== claims.sub || session.expiresAt <= Date.now()) {
       throw new Error('INVALID_REFRESH_TOKEN');
-    activeRefreshTokens.delete(claims.jti);
-    return claims;
+    }
+    await sessionRepository.delete(claims.jti);
+    return { claims, context: session satisfies SessionContext };
   },
-  revoke(token: string) {
+  async revoke(token: string) {
     try {
       const claims = jwt.verify(token, config.refreshTokenSecret) as TokenClaims;
-      if (claims.jti) activeRefreshTokens.delete(claims.jti);
+      if (claims.jti) await sessionRepository.delete(claims.jti);
     } catch {
       /* An invalid cookie is already effectively revoked. */
     }
   },
+  listSessions: (userId: string) => sessionRepository.listByUser(userId),
+  async revokeSession(userId: string, sessionId: string, currentSessionId: string) {
+    if (sessionId === currentSessionId) return 'current' as const;
+    const session = await sessionRepository.findById(sessionId);
+    if (!session || session.userId !== userId) return 'not-found' as const;
+    await sessionRepository.delete(sessionId);
+    return 'revoked' as const;
+  },
+  revokeOtherSessions: (userId: string, currentSessionId: string) =>
+    sessionRepository.deleteOthers(userId, currentSessionId),
 };

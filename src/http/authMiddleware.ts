@@ -11,13 +11,14 @@ declare global {
     interface Request {
       auth?: {
         role: UserRole;
+        sessionId: string;
         userId: string;
       };
       userId?: string;
     }
   }
 }
-export const requireAuth = (request: Request, response: Response, next: NextFunction) => {
+export const requireAuth = async (request: Request, response: Response, next: NextFunction) => {
   if (request.auth) return next();
 
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '');
@@ -27,8 +28,9 @@ export const requireAuth = (request: Request, response: Response, next: NextFunc
       message: 'Authentication is required',
     });
   try {
-    const userId = tokenService.verifyAccess(token).sub;
-    const user = userRepository.findById(userId);
+    const claims = await tokenService.verifyAccess(token);
+    const userId = claims.sub;
+    const user = await userRepository.findById(userId);
 
     if (!user) {
       return response.status(401).json({
@@ -46,6 +48,7 @@ export const requireAuth = (request: Request, response: Response, next: NextFunc
 
     request.auth = {
       role: user.role,
+      sessionId: claims.jti ?? '',
       userId: user.id,
     };
     request.userId = user.id;

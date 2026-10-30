@@ -9,3 +9,7 @@ export { VerificationError, verificationService } from './verificationService.js
 export { BankCardError, bankCardService } from './bankCardService.js';
 export { referralService } from './referralService.js';
 export { AdminError, adminService } from './adminService.js';
+export * from './accountService.js';
+export * from './mfaService.js';
+export * from './notificationService.js';
+export * from './totp.js';

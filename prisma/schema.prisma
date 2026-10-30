@@ -1,0 +1,432 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+enum UserRole {
+  admin
+  compliance
+  customer
+  operations
+  support
+}
+
+enum UserStatus {
+  active
+  blocked
+}
+
+enum VerificationLevel {
+  basic
+  verified
+  advanced
+}
+
+enum ColorMode {
+  dark
+  light
+}
+
+enum Language {
+  en
+  fa
+}
+
+enum NotificationKind {
+  order_placed
+  security_recommendation
+  verification_reminder
+}
+
+enum OrderSide {
+  buy
+  sell
+}
+
+enum OrderType {
+  limit
+  market
+}
+
+enum OrderStatus {
+  open
+  filled
+  cancelled
+}
+
+enum TransferType {
+  deposit
+  withdraw
+}
+
+enum ProcessStatus {
+  completed
+  failed
+  pending
+}
+
+enum SupportCategory {
+  account
+  security
+  trading
+  verification
+  wallet
+}
+
+enum SupportStatus {
+  closed
+  open
+  waiting_for_support
+  waiting_for_user
+}
+
+enum MessageAuthor {
+  support
+  user
+}
+
+enum VerificationStatus {
+  draft
+  not_started
+  pending
+  ready
+  rejected
+  verified
+}
+
+enum VerificationCountry {
+  AE
+  IR
+  TR
+}
+
+enum PaymentProvider {
+  manual
+  provider_a
+}
+
+enum ReferralStatus {
+  joined
+  qualified
+  rewarded
+}
+
+model User {
+  id                 String              @id
+  name               String
+  email              String              @unique
+  passwordHash       String
+  passwordChangedAt  DateTime
+  level              VerificationLevel
+  role               UserRole
+  status             UserStatus
+  profile            AccountProfile?
+  preferences        AccountPreferences?
+  sessions           Session[]
+  mfa                MfaCredential?
+  pendingMfa         PendingMfaSetup[]
+  notifications      Notification[]
+  balances           WalletBalance[]
+  walletTransactions WalletTransaction[]
+  orders             Order[]
+  purchaseQuotes     PurchaseQuote[]
+  purchaseOrders     PurchaseOrder[]
+  conversionQuotes   ConversionQuote[]
+  conversionOrders   ConversionOrder[]
+  supportTickets     SupportTicket[]
+  verification       Verification?
+  bankCards          BankCard[]
+  referrals          Referral[]
+  auditEvents        AuditEvent[]        @relation("AuditActor")
+}
+
+model AccountProfile {
+  userId     String  @id
+  phone      String
+  avatarData Bytes?
+  avatarMime String?
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AccountPreferences {
+  userId               String    @id
+  colorMode            ColorMode
+  language             Language
+  priceAlerts          Boolean
+  tradingNotifications Boolean
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id           String   @id
+  userId       String
+  browser      String
+  device       String
+  ipAddress    String
+  location     String
+  createdAt    DateTime
+  lastActiveAt DateTime
+  expiresAt    DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model PendingMfaSetup {
+  id        String   @id
+  userId    String
+  secret    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model MfaCredential {
+  userId        String            @id
+  secret        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recoveryCodes MfaRecoveryCode[]
+}
+
+model MfaRecoveryCode {
+  id         String        @id @default(uuid())
+  userId     String
+  hash       String        @unique
+  credential MfaCredential @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Notification {
+  id         String           @id
+  userId     String
+  kind       NotificationKind
+  metadata   Json
+  actionPath String
+  createdAt  DateTime
+  readAt     DateTime?
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+}
+
+model WalletBalance {
+  userId  String
+  asset   String
+  balance Decimal @db.Decimal(36, 18)
+  locked  Decimal @db.Decimal(36, 18)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, asset])
+}
+
+model WalletTransaction {
+  id        String        @id
+  userId    String
+  asset     String
+  type      TransferType
+  amount    Decimal       @db.Decimal(36, 18)
+  network   String
+  address   String?
+  status    ProcessStatus
+  createdAt DateTime
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model Order {
+  id             String      @id
+  userId         String
+  symbol         String
+  side           OrderSide
+  type           OrderType
+  price          Decimal     @db.Decimal(36, 18)
+  amount         Decimal     @db.Decimal(36, 18)
+  filled         Decimal     @db.Decimal(7, 4)
+  status         OrderStatus
+  createdAt      DateTime
+  updatedAt      DateTime
+  averagePrice   Decimal     @db.Decimal(36, 18)
+  feeAmount      Decimal     @db.Decimal(36, 18)
+  quoteAmount    Decimal     @db.Decimal(36, 18)
+  idempotencyKey String?
+  reservedAsset  String?
+  reservedAmount Decimal?    @db.Decimal(36, 18)
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model PurchaseQuote {
+  id           String          @id
+  userId       String
+  asset        String
+  assetAmount  Decimal         @db.Decimal(36, 18)
+  expiresAt    DateTime
+  feeAmount    Decimal         @db.Decimal(36, 18)
+  fiatAmount   Decimal         @db.Decimal(36, 18)
+  fiatCurrency String
+  totalAmount  Decimal         @db.Decimal(36, 18)
+  unitPrice    Decimal         @db.Decimal(36, 18)
+  consumedAt   DateTime?
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders       PurchaseOrder[]
+
+  @@index([userId, expiresAt])
+}
+
+model PurchaseOrder {
+  id             String        @id
+  userId         String
+  asset          String
+  assetAmount    Decimal       @db.Decimal(36, 18)
+  createdAt      DateTime
+  fiatAmount     Decimal       @db.Decimal(36, 18)
+  fiatCurrency   String
+  idempotencyKey String
+  quoteId        String
+  status         ProcessStatus
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quote          PurchaseQuote @relation(fields: [quoteId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model ConversionQuote {
+  id                String            @id
+  userId            String
+  destinationAmount Decimal           @db.Decimal(36, 18)
+  expiresAt         DateTime
+  feeAmount         Decimal           @db.Decimal(36, 18)
+  fromAsset         String
+  rate              Decimal           @db.Decimal(36, 18)
+  sourceAmount      Decimal           @db.Decimal(36, 18)
+  toAsset           String
+  consumedAt        DateTime?
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders            ConversionOrder[]
+
+  @@index([userId, expiresAt])
+}
+
+model ConversionOrder {
+  id                String          @id
+  userId            String
+  createdAt         DateTime
+  destinationAmount Decimal         @db.Decimal(36, 18)
+  fromAsset         String
+  idempotencyKey    String
+  quoteId           String
+  sourceAmount      Decimal         @db.Decimal(36, 18)
+  status            ProcessStatus
+  toAsset           String
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quote             ConversionQuote @relation(fields: [quoteId], references: [id])
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model SupportTicket {
+  id        String           @id
+  userId    String
+  category  SupportCategory
+  status    SupportStatus
+  subject   String
+  createdAt DateTime
+  updatedAt DateTime
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  SupportMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+}
+
+model SupportMessage {
+  id        String        @id
+  ticketId  String
+  author    MessageAuthor
+  body      String
+  createdAt DateTime
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+model Verification {
+  userId             String               @id
+  country            VerificationCountry?
+  fullName           String?
+  nationalId         String?
+  status             VerificationStatus
+  submittedAt        DateTime?
+  updatedAt          DateTime
+  documentId         String?
+  documentMimeType   String?
+  documentName       String?
+  documentSize       Int?
+  documentUploadedAt DateTime?
+  documentData       Bytes?
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt(sort: Desc)])
+}
+
+model BankCard {
+  id           String   @id
+  userId       String
+  fingerprint  String
+  maskedIban   String
+  maskedNumber String
+  isDefault    Boolean
+  createdAt    DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fingerprint])
+  @@index([userId, isDefault, createdAt])
+}
+
+model Referral {
+  id           String         @id
+  userId       String
+  inviteeName  String
+  rewardAmount Decimal        @db.Decimal(36, 18)
+  status       ReferralStatus
+  createdAt    DateTime
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model AdminSettings {
+  id                 Int             @id @default(1)
+  minimumWithdrawal  Decimal         @db.Decimal(36, 18)
+  networkEnabled     Boolean
+  paymentProvider    PaymentProvider
+  tradingFeePercent  Decimal         @db.Decimal(10, 6)
+  updatedAt          DateTime
+  withdrawalsEnabled Boolean
+}
+
+model AuditEvent {
+  id         String   @id
+  actorId    String
+  action     String
+  targetId   String
+  targetType String
+  metadata   Json?
+  createdAt  DateTime
+  actor      User     @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+}

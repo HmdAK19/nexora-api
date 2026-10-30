@@ -1,3 +1,4 @@
+export { accountRouter } from './accountRoutes.js';
 export { authRouter } from './authRoutes.js';
 export { bankCardRouter } from './bankCardRoutes.js';
 export { buyRouter } from './buyRoutes.js';

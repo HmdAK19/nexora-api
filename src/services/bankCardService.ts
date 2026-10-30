@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+import type { BankCardRecord } from '../domain/index.js';
 import { bankCardRepository } from '../repositories/index.js';
 
 export class BankCardError extends Error {
@@ -14,7 +15,7 @@ const publicCard = ({
   userId: _userId,
   fingerprint: _fingerprint,
   ...card
-}: ReturnType<typeof bankCardRepository.create>) => {
+}: BankCardRecord) => {
   void _userId;
   void _fingerprint;
   return card;
@@ -23,14 +24,14 @@ const maskNumber = (number: string) => `${number.slice(0, 4)} •••• •�
 const maskIban = (iban: string) => `${iban.slice(0, 4)} •••• •••• •••• •••• ••${iban.slice(-4)}`;
 
 export const bankCardService = {
-  list: (userId: string) => bankCardRepository.listByUser(userId).map(publicCard),
-  create(userId: string, number: string, iban: string) {
+  list: async (userId: string) => (await bankCardRepository.listByUser(userId)).map(publicCard),
+  async create(userId: string, number: string, iban: string) {
     const fingerprint = createHash('sha256').update(`${userId}:${number}:${iban}`).digest('hex');
-    if (bankCardRepository.findByFingerprint(userId, fingerprint))
+    if (await bankCardRepository.findByFingerprint(userId, fingerprint))
       throw new BankCardError('CARD_ALREADY_EXISTS', 409);
-    const first = bankCardRepository.listByUser(userId).length === 0;
+    const first = (await bankCardRepository.listByUser(userId)).length === 0;
     return publicCard(
-      bankCardRepository.create({
+      await bankCardRepository.create({
         createdAt: new Date().toISOString(),
         fingerprint,
         id: randomUUID(),
@@ -41,17 +42,17 @@ export const bankCardService = {
       })
     );
   },
-  delete(userId: string, id: string) {
-    const removed = bankCardRepository.delete(userId, id);
+  async delete(userId: string, id: string) {
+    const removed = await bankCardRepository.delete(userId, id);
     if (!removed) throw new BankCardError('CARD_NOT_FOUND', 404);
     if (removed.isDefault) {
-      const next = bankCardRepository.listByUser(userId)[0];
-      if (next) bankCardRepository.setDefault(userId, next.id);
+      const next = (await bankCardRepository.listByUser(userId))[0];
+      if (next) await bankCardRepository.setDefault(userId, next.id);
     }
   },
-  setDefault(userId: string, id: string) {
-    if (!bankCardRepository.findById(userId, id)) throw new BankCardError('CARD_NOT_FOUND', 404);
-    const card = bankCardRepository.setDefault(userId, id);
+  async setDefault(userId: string, id: string) {
+    if (!(await bankCardRepository.findById(userId, id))) throw new BankCardError('CARD_NOT_FOUND', 404);
+    const card = await bankCardRepository.setDefault(userId, id);
     if (!card) throw new BankCardError('CARD_NOT_FOUND', 404);
     return publicCard(card);
   },

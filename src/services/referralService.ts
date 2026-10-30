@@ -3,8 +3,8 @@ import { referralRepository } from '../repositories/index.js';
 const REWARD_RATE = 20;
 
 export const referralService = {
-  getSummary(userId: string) {
-    const referrals = referralRepository.listByUser(userId);
+  async getSummary(userId: string) {
+    const referrals = await referralRepository.listByUser(userId);
     const rewardTotal = referrals.reduce((total, referral) => total + referral.rewardAmount, 0);
 
     return {
