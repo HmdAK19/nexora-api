@@ -119,8 +119,8 @@ curl http://localhost:4000/api/health
 
 | نقش | ایمیل | گذرواژه |
 | --- | --- | --- |
-| مدیر | `demo@nexora.dev` | مقدار `SEED_ADMIN_PASSWORD` |
-| مشتری | `customer@nexora.dev` | مقدار `SEED_CUSTOMER_PASSWORD` |
+| مدیر نمایشی | `demo@nexora.dev` | `Admin123!` در استقرار عمومی دمو |
+| مشتری نمایشی | `customer@nexora.dev` | `Nexora123!` در استقرار عمومی دمو |
 
 این حساب‌ها فقط seed اولیه هستند. اجرای seed بدون دو متغیر رمز متوقف می‌شود و اجرای مجدد، رمزهای موجود را rotate می‌کند. در production رمزها باید secret تصادفی باشند و حساب‌های نمایشی پس از راه‌اندازی با جریان provisioning واقعی جایگزین شوند.
 
