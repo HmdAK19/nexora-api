@@ -58,6 +58,20 @@
 | POST | `/auth/refresh` | Cookie | چرخش refresh token |
 | POST | `/auth/logout` | Cookie اختیاری | پایان نشست |
 | GET | `/auth/me` | Bearer | کاربر فعلی |
+| GET | `/account/security` | Bearer | وضعیت امنیت و نشست‌های فعال |
+| PUT | `/account/password` | Bearer | تغییر گذرواژه |
+| DELETE | `/account/sessions/:sessionId` | Bearer | ابطال نشست غیرجاری |
+| POST | `/account/mfa/setup` | Bearer | آغاز راه‌اندازی TOTP |
+| POST | `/account/mfa/confirm` | Bearer | تأیید TOTP و دریافت recovery code |
+| DELETE | `/account/mfa` | Bearer | غیرفعال‌سازی MFA |
+| GET | `/account/profile` | Bearer | دریافت پروفایل کاربر |
+| PATCH | `/account/profile` | Bearer | تغییر نام و تلفن |
+| PUT | `/account/avatar` | Bearer | بارگذاری باینری تصویر پروفایل |
+| GET | `/account/preferences` | Bearer | دریافت ترجیحات |
+| PUT | `/account/preferences` | Bearer | جایگزینی ترجیحات |
+| GET | `/account/notifications` | Bearer | فهرست اعلان‌های کاربر |
+| PATCH | `/account/notifications/:notificationId/read` | Bearer | خواندن یک اعلان |
+| POST | `/account/notifications/read-all` | Bearer | خواندن همه‌ی اعلان‌ها |
 | GET | `/dashboard` | Bearer | خلاصه داشبورد |
 | GET | `/markets` | Bearer | فهرست بازارها |
 | GET | `/markets/featured` | Bearer | بازارهای منتخب |
@@ -158,6 +172,73 @@ refresh token موجود را revoke و cookie را پاک می‌کند. پاس
 
 اطلاعات عمومی کاربر جاری را مانند فیلد `user` در login برمی‌گرداند. اگر رکورد کاربر پیدا نشود: `404 USER_NOT_FOUND`.
 
+## Account security
+
+### `GET /account/security`
+
+اطلاعات امنیتی کاربر احراز هویت‌شده را برمی‌گرداند:
+
+```json
+{
+  "twoFactorEnabled": false,
+  "passwordChangedAt": "2026-10-30T10:00:00.000Z",
+  "sessions": [
+    {
+      "id": "session-uuid",
+      "browser": "Chrome",
+      "device": "Windows",
+      "location": "Unknown",
+      "ipAddress": "127.0.0.1",
+      "lastActiveAt": "2026-10-30T10:15:00.000Z",
+      "current": true
+    }
+  ]
+}
+```
+
+در هر پاسخ دقیقاً یک نشست `current` است. نسخه‌ی فعلی browser/device را از User-Agent استخراج می‌کند و تا زمان اتصال سرویس GeoIP مقدار location برابر `Unknown` است.
+
+### `PUT /account/password`
+
+ورودی `{ "currentPassword": "...", "newPassword": "..." }` با طول ۸ تا ۱۲۸ نویسه است. گذرواژه فعلی در سرور بررسی می‌شود؛ گذرواژه یکسان با `PASSWORD_REUSED` و credential نادرست با `INVALID_CURRENT_PASSWORD` رد می‌شود. موفقیت `204` برمی‌گرداند و تمام نشست‌های دیگر را باطل می‌کند. این مسیر در هر ۱۵ دقیقه به ۵ تلاش برای هر IP محدود است.
+
+### `DELETE /account/sessions/:sessionId`
+
+فقط نشست متعلق به همان کاربر را باطل می‌کند. نشست جاری با `409 CURRENT_SESSION` رد می‌شود و شناسه ناشناخته یا متعلق به کاربر دیگر `404 SESSION_NOT_FOUND` برمی‌گرداند. ابطال نشست، access و refresh token متناظر را هم‌زمان نامعتبر می‌کند.
+
+### MFA/TOTP
+
+`POST /account/mfa/setup` با body شامل `{ "currentPassword": "..." }` پس از step-up رمز، یک `setupToken` ده‌دقیقه‌ای، secret تصادفی Base32، زمان انقضا و URI استاندارد `otpauth://` برمی‌گرداند. تا پیش از confirm، MFA فعال محسوب نمی‌شود.
+
+`POST /account/mfa/confirm` ورودی `{ "setupToken": "...", "code": "123456" }` را در پنجره زمانی ±۳۰ ثانیه مطابق RFC 6238 بررسی می‌کند. پاسخ موفق شامل ده `recoveryCodes` است که فقط همین یک‌بار نمایش داده می‌شوند؛ سرور تنها HMAC-SHA-256 آن‌ها را با کلید مستقل محیطی نگه می‌دارد و هر کد پس از یک login مصرف می‌شود.
+
+پس از فعال‌سازی، `POST /auth/login` علاوه بر email/password به یکی از `mfaCode` یا `recoveryCode` نیاز دارد. نبود عامل دوم `MFA_REQUIRED` و مقدار نادرست `INVALID_MFA_CODE` برمی‌گرداند. `DELETE /account/mfa` با `{ currentPassword, code }` هم رمز و هم TOTP جاری را برای غیرفعال‌سازی بررسی می‌کند.
+
+## Account profile and preferences
+
+`GET /account/profile` پاسخ `{ name, email, phone, avatarUrl }` را برای کاربر جاری برمی‌گرداند. `PATCH /account/profile` فقط `{ name, phone }` را می‌پذیرد؛ تغییر email عمداً تا زمان پیاده‌سازی جریان تأیید جداگانه مجاز نیست.
+
+`PUT /account/avatar` یک body باینری خام با `Content-Type` یکی از `image/png`، `image/jpeg` یا `image/webp` و حداکثر حجم ۱ مگابایت می‌پذیرد. علاوه بر header، امضای ابتدایی فایل بررسی می‌شود. bytes در PostgreSQL ذخیره و data URL برگردانده می‌شود؛ در مقیاس بالا decode/re-encode، حذف metadata، اسکن بدافزار و object storage خصوصی توصیه می‌شود.
+
+`GET /account/preferences` و `PUT /account/preferences` از رکورد کامل زیر استفاده می‌کنند:
+
+```json
+{
+  "language": "fa",
+  "colorMode": "dark",
+  "tradingNotifications": true,
+  "priceAlerts": true
+}
+```
+
+`language` فقط `fa` یا `en` و `colorMode` فقط `dark` یا `light` است. writeهای profile، avatar و preferences در limiter مشترک به ۳۰ درخواست در ساعت برای هر IP محدود می‌شوند. داده‌های این بخش در PostgreSQL پایدار هستند.
+
+### Notifications
+
+`GET /account/notifications` خروجی `{ items, unreadCount }` را برمی‌گرداند. هر اعلان شامل `{ id, kind, metadata, actionPath, createdAt, readAt }` است و `readAt` تا پیش از خواندن `null` خواهد بود. نوع اعلان یکی از `verification_reminder`، `order_placed` یا `security_recommendation` است. API به‌جای متن محلی‌سازی‌شده، kind پایدار و metadata نمایشی می‌فرستد تا ترجمه در client انجام شود.
+
+`PATCH /account/notifications/:notificationId/read` یک اعلان متعلق به کاربر را idempotent می‌خواند و `POST /account/notifications/read-all` همه‌ی اعلان‌های همان کاربر را می‌خواند. هر دو مسیر feed کامل به‌روز را برمی‌گردانند. شناسه‌ی ناشناخته یا متعلق به کاربر دیگر یکسان با `404 NOTIFICATION_NOT_FOUND` پاسخ داده می‌شود. مسیرهای write زیر limiter مشترک account هستند. اعلان‌ها با index روی user/read state در PostgreSQL نگه‌داری می‌شوند؛ worker تحویل، retry policy و کانال push هنوز جداگانه لازم‌اند.
+
 ## Dashboard
 
 ### `GET /dashboard`
@@ -239,7 +320,7 @@ Permission: `wallet:access`.
 
 پاسخ `201` یک transaction با status ثابت `completed` است. خطاها: `404 ASSET_NOT_FOUND` و `409 INSUFFICIENT_BALANCE`.
 
-> انتقال‌ها نمایشی‌اند و هیچ تراکنش زنجیره‌ای یا تأیید پرداختی ایجاد نمی‌کنند.
+> ثبت انتقال و تغییر موجودی مرجع در یک تراکنش اتمیک PostgreSQL انجام می‌شود، اما انتقال‌ها هنوز نمایشی‌اند و هیچ تراکنش زنجیره‌ای یا تأیید پرداختی خارجی ایجاد نمی‌کنند.
 
 ## Trading orders
 
@@ -566,7 +647,7 @@ Permission: `admin:audit:read`. رویدادها از جدید به قدیم ب�
 - `POST /buy/orders`
 - `POST /convert/orders`
 
-کلید در محدوده‌ی همان کاربر معنا دارد. ارسال دوباره‌ی همان کلید برای همان عملیات نتیجه‌ی قبلی را برمی‌گرداند. استفاده‌ی همان کلید با quote یا payload متفاوت با `409 IDEMPOTENCY_KEY_REUSED` رد می‌شود. ذخیره‌ی کلید در نسخه‌ی فعلی in-memory است و پس از restart باقی نمی‌ماند.
+کلید در محدوده‌ی همان کاربر معنا دارد. ارسال دوباره‌ی همان کلید برای همان عملیات نتیجه‌ی قبلی را برمی‌گرداند. استفاده‌ی همان کلید با quote یا payload متفاوت با `409 IDEMPOTENCY_KEY_REUSED` رد می‌شود. کلید در PostgreSQL و با unique constraint مرکب روی کاربر ذخیره می‌شود و پس از restart باقی می‌ماند.
 
 ## Rate limits
 
