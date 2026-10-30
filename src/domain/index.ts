@@ -6,6 +6,7 @@ export type {
   BankCardRecord,
   ConversionOrderRecord,
   ConversionQuoteRecord,
+  CreateUserRecord,
   NotificationKind,
   NotificationRecord,
   OrderRecord,

@@ -1,4 +1,5 @@
 export { tokenService } from './tokenService.js';
+export { RegistrationError, registrationService, type RegistrationInput } from './registrationService.js';
 export { PurchaseError, purchaseService } from './purchaseService.js';
 export { ConversionError, conversionService } from './conversionService.js';
 export { SupportError, supportService } from './supportService.js';

@@ -8,6 +8,7 @@ import type {
   BankCardRecord,
   ConversionOrderRecord,
   ConversionQuoteRecord,
+  CreateUserRecord,
   NotificationRecord,
   OrderRecord,
   PurchaseOrderRecord,
@@ -172,6 +173,34 @@ const verificationRecord = (
 
 export const prismaRepositories = {
   userRepository: {
+    create: async (input: CreateUserRecord) => {
+      try {
+        const user = await prisma.user.create({
+          data: {
+            ...input.user,
+            passwordChangedAt: new Date(input.user.passwordChangedAt),
+            termsAcceptedAt: new Date(input.termsAcceptedAt),
+            balances: {
+              create: ['BTC', 'ETH', 'SOL', 'USD', 'USDT'].map((asset) => ({ asset, balance: 0, locked: 0 })),
+            },
+            preferences: {
+              create: {
+                colorMode: 'dark',
+                language: input.language,
+                priceAlerts: true,
+                tradingNotifications: true,
+              },
+            },
+            profile: { create: { phone: input.phone } },
+            verification: { create: { status: 'not_started', updatedAt: new Date() } },
+          },
+        });
+        return userRecord(user);
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return undefined;
+        throw error;
+      }
+    },
     findByEmail: async (email: string) => userRecord(await prisma.user.findUnique({ where: { email } })),
     findById: async (id: string) => userRecord(await prisma.user.findUnique({ where: { id } })),
     list: async () => (await prisma.user.findMany()).map((user) => userRecord(user)!),

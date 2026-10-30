@@ -122,6 +122,7 @@ model User {
   email              String              @unique
   passwordHash       String
   passwordChangedAt  DateTime
+  termsAcceptedAt    DateTime?
   level              VerificationLevel
   role               UserRole
   status             UserStatus

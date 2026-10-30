@@ -55,6 +55,7 @@
 | --- | --- | --- | --- |
 | GET | `/health` | عمومی | سلامت پردازش |
 | POST | `/auth/login` | عمومی | ورود |
+| POST | `/auth/register` | عمومی | ایجاد حساب مشتری و نشست اولیه |
 | POST | `/auth/refresh` | Cookie | چرخش refresh token |
 | POST | `/auth/logout` | Cookie اختیاری | پایان نشست |
 | GET | `/auth/me` | Bearer | کاربر فعلی |
@@ -130,6 +131,12 @@
 این endpoint فقط سلامت پردازش Express را گزارش می‌کند و اتصال تأمین‌کننده‌ی بازار یا persistence را بررسی نمی‌کند.
 
 ## Authentication
+
+### `POST /auth/register`
+
+ورودی شامل `{ name, email, phone?, password, language, termsAccepted: true }` است. نام با پشتیبانی Unicode بین ۲ تا ۸۰ نویسه، ایمیل normalizeشده، موبایل اختیاری با قالب E.164، زبان `fa` یا `en` و رمز ۱۰ تا ۱۲۸ نویسه‌ای شامل حروف بزرگ و کوچک انگلیسی، عدد، نویسه ویژه و بدون فاصله پذیرفته می‌شود. عملیات ساخت کاربر `customer`، پروفایل، ترجیحات، وضعیت اولیه احراز هویت، موجودی‌های صفر و زمان پذیرش قوانین در یک تراکنش انجام می‌شود.
+
+پاسخ موفق `201` و همان ساختار login به‌همراه refresh cookie است. ایمیل تکراری `409 EMAIL_ALREADY_EXISTS`، ورودی نامعتبر `400 VALIDATION_ERROR` و عبور از محدودیت پنج تلاش در ساعت `429 RATE_LIMITED` برمی‌گرداند.
 
 ### `POST /auth/login`
 

@@ -8,6 +8,7 @@ import type {
   BankCardRecord,
   ConversionOrderRecord,
   ConversionQuoteRecord,
+  CreateUserRecord,
   NotificationRecord,
   OrderRecord,
   PurchaseOrderRecord,
@@ -248,6 +249,26 @@ const sessions = new Map<string, SessionRecord>();
 const pendingMfa = new Map<string, { expiresAt: number; secret: string; userId: string }>();
 const mfaCredentials = new Map<string, { hashes: Set<string>; secret: string }>();
 export const userRepository = {
+  create: (input: CreateUserRecord) => {
+    if (users.some((user) => user.email.toLowerCase() === input.user.email.toLowerCase())) return undefined;
+    users.push({ ...input.user });
+    accountProfiles.set(input.user.id, { phone: input.phone, userId: input.user.id });
+    accountPreferences.set(input.user.id, {
+      colorMode: 'dark',
+      language: input.language,
+      priceAlerts: true,
+      tradingNotifications: true,
+      userId: input.user.id,
+    });
+    walletBalances.set(input.user.id, { BTC: 0, ETH: 0, SOL: 0, USD: 0, USDT: 0 });
+    walletLocked.set(input.user.id, {});
+    verifications.set(input.user.id, {
+      status: 'not_started',
+      updatedAt: new Date().toISOString(),
+      userId: input.user.id,
+    });
+    return { ...input.user };
+  },
   findByEmail: (email: string) => users.find((user) => user.email.toLowerCase() === email.toLowerCase()),
   findById: (id: string) => users.find((user) => user.id === id),
   list: () => [...users],

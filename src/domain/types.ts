@@ -32,6 +32,13 @@ export interface UserRecord {
   status: 'active' | 'blocked';
 }
 
+export interface CreateUserRecord {
+  language: 'en' | 'fa';
+  phone: string;
+  termsAcceptedAt: string;
+  user: UserRecord;
+}
+
 export interface AdminSettingsRecord {
   minimumWithdrawal: number;
   networkEnabled: boolean;

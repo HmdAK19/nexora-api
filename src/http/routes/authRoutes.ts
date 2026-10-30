@@ -1,11 +1,12 @@
 import { Router, type Request } from 'express';
 import bcrypt from 'bcryptjs';
+import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 
 import { config } from '../../config.js';
 import { getPermissionsForRole, type UserRecord } from '../../domain/index.js';
 import { userRepository } from '../../repositories/index.js';
-import { mfaService, tokenService } from '../../services/index.js';
+import { RegistrationError, mfaService, registrationService, tokenService } from '../../services/index.js';
 import { requireAuth } from '../authMiddleware.js';
 
 function getSessionContext(request: Request) {
@@ -40,6 +41,35 @@ const loginSchema = z.object({
   recoveryCode: z.string().regex(/^[A-F0-9]{5}-[A-F0-9]{5}$/i).optional(),
   password: z.string().min(8).max(128),
 });
+const registrationSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  language: z.enum(['en', 'fa']).default('en'),
+  name: z
+    .string()
+    .trim()
+    .min(2)
+    .max(80)
+    .regex(/^[\p{L}\p{M}][\p{L}\p{M}\s'’-]*$/u),
+  password: z
+    .string()
+    .min(10)
+    .max(128)
+    .regex(/[a-z]/)
+    .regex(/[A-Z]/)
+    .regex(/\d/)
+    .regex(/[^A-Za-z0-9\s]/)
+    .regex(/^\S+$/),
+  phone: z.string().trim().regex(/^\+[1-9]\d{7,14}$/).optional(),
+  termsAccepted: z.literal(true),
+});
+const registrationRateLimit = rateLimit({
+  legacyHeaders: false,
+  limit: 5,
+  message: { code: 'RATE_LIMITED', message: 'Too many registration attempts' },
+  skip: () => process.env.NODE_ENV === 'test',
+  standardHeaders: 'draft-8',
+  windowMs: 60 * 60 * 1_000,
+});
 const cookieOptions = {
   httpOnly: true,
   secure: config.isProduction,
@@ -56,6 +86,19 @@ const publicUser = (user: UserRecord) => ({
   role: user.role,
 });
 export const authRouter = Router();
+authRouter.post('/register', registrationRateLimit, async (request, response, next) => {
+  try {
+    const user = await registrationService.register(registrationSchema.parse(request.body));
+    const session = await tokenService.createSession(user, getSessionContext(request));
+    response.cookie('nexora_refresh', session.refreshToken, cookieOptions);
+    return response.status(201).json({ accessToken: session.accessToken, user: publicUser(user) });
+  } catch (error) {
+    if (error instanceof RegistrationError) {
+      return response.status(error.status).json({ code: error.code, message: error.code });
+    }
+    return next(error);
+  }
+});
 authRouter.post('/login', async (request, response, next) => {
   try {
     const input = loginSchema.parse(request.body);

@@ -21,6 +21,76 @@ describe('Nexora API', () => {
       .expect(401);
     expect(response.body.code).toBe('INVALID_CREDENTIALS');
   });
+  it('registers a customer aggregate and immediately creates an authenticated session', async () => {
+    const app = createApp();
+    const email = `new-${Date.now()}@example.com`;
+    const response = await request(app)
+      .post('/api/auth/register')
+      .send({
+        email,
+        language: 'fa',
+        name: 'کاربر جدید',
+        password: 'StrongPass1!',
+        phone: '+989121234567',
+        termsAccepted: true,
+      })
+      .expect(201);
+
+    expect(response.headers['set-cookie']?.[0]).toContain('HttpOnly');
+    expect(response.body).toMatchObject({
+      accessToken: expect.any(String),
+      user: { email, level: 'basic', name: 'کاربر جدید', role: 'customer' },
+    });
+    const authorization = `Bearer ${String(response.body.accessToken)}`;
+    await request(app)
+      .get('/api/account/profile')
+      .set('Authorization', authorization)
+      .expect(200)
+      .expect(({ body }) => expect(body.phone).toBe('+989121234567'));
+    await request(app)
+      .get('/api/account/preferences')
+      .set('Authorization', authorization)
+      .expect(200)
+      .expect(({ body }) => expect(body.language).toBe('fa'));
+    await request(app).get('/api/wallet').set('Authorization', authorization).expect(200);
+  });
+  it('rejects duplicate registration without changing the existing credential', async () => {
+    const app = createApp();
+    await request(app)
+      .post('/api/auth/register')
+      .send({
+        email: 'customer@nexora.dev',
+        language: 'en',
+        name: 'Duplicate User',
+        password: 'StrongPass1!',
+        termsAccepted: true,
+      })
+      .expect(409)
+      .expect(({ body }) => expect(body.code).toBe('EMAIL_ALREADY_EXISTS'));
+
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'customer@nexora.dev', password: 'Nexora123!' })
+      .expect(200);
+  });
+  it('validates registration fields at the HTTP boundary', async () => {
+    const response = await request(createApp())
+      .post('/api/auth/register')
+      .send({
+        email: 'invalid',
+        language: 'de',
+        name: '1',
+        password: 'weak',
+        phone: '0912',
+        termsAccepted: false,
+      })
+      .expect(400);
+
+    expect(response.body).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(response.body.details).toEqual(
+      expect.objectContaining({ email: expect.any(Array), language: expect.any(Array), password: expect.any(Array) })
+    );
+  });
   it('issues a refresh cookie and access token for the demo account', async () => {
     const response = await request(createApp())
       .post('/api/auth/login')
