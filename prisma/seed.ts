@@ -31,9 +31,11 @@ async function main() {
     throw new Error('SEED_ADMIN_PASSWORD and SEED_CUSTOMER_PASSWORD are required');
   const passwordChangedAt = new Date(Date.now() - 43 * 86_400_000);
 
+  const seededUserIds = new Map<string, string>();
+
   for (const user of users) {
     const passwordHash = await bcrypt.hash(user.role === 'admin' ? adminPassword : customerPassword, 12);
-    await prisma.user.upsert({
+    const seededUser = await prisma.user.upsert({
       create: {
         ...user,
         level: 'verified',
@@ -41,13 +43,24 @@ async function main() {
         passwordHash,
         status: 'active',
       },
-      update: { email: user.email, name: user.name, passwordChangedAt, passwordHash, role: user.role },
-      where: { id: user.id },
+      update: {
+        level: 'verified',
+        name: user.name,
+        passwordChangedAt,
+        passwordHash,
+        role: user.role,
+        status: 'active',
+      },
+      where: { email: user.email },
     });
+    seededUserIds.set(user.id, seededUser.id);
     await prisma.accountProfile.upsert({
-      create: { phone: user.role === 'admin' ? '+98 912 000 0000' : '+98 912 000 0001', userId: user.id },
+      create: {
+        phone: user.role === 'admin' ? '+98 912 000 0000' : '+98 912 000 0001',
+        userId: seededUser.id,
+      },
       update: {},
-      where: { userId: user.id },
+      where: { userId: seededUser.id },
     });
     await prisma.accountPreferences.upsert({
       create: {
@@ -55,18 +68,22 @@ async function main() {
         language: 'fa',
         priceAlerts: true,
         tradingNotifications: true,
-        userId: user.id,
+        userId: seededUser.id,
       },
       update: {},
-      where: { userId: user.id },
+      where: { userId: seededUser.id },
     });
   }
 
+  const adminUserId = seededUserIds.get('user-demo');
+  const customerUserId = seededUserIds.get('user-customer-demo');
+  if (!adminUserId || !customerUserId) throw new Error('Demo users were not created');
+
   for (const [asset, balance] of Object.entries(balances)) {
     await prisma.walletBalance.upsert({
-      create: { asset, balance, locked: asset === 'USDT' ? 4275 : 0, userId: 'user-demo' },
+      create: { asset, balance, locked: asset === 'USDT' ? 4275 : 0, userId: adminUserId },
       update: {},
-      where: { userId_asset: { asset, userId: 'user-demo' } },
+      where: { userId_asset: { asset, userId: adminUserId } },
     });
   }
 
@@ -78,7 +95,7 @@ async function main() {
         id: 'notification-verification-demo',
         kind: 'verification_reminder',
         metadata: {},
-        userId: 'user-demo',
+        userId: adminUserId,
       },
       {
         actionPath: '/settings',
@@ -86,7 +103,7 @@ async function main() {
         id: 'notification-security-customer',
         kind: 'security_recommendation',
         metadata: {},
-        userId: 'user-customer-demo',
+        userId: customerUserId,
       },
     ],
     skipDuplicates: true,
@@ -105,6 +122,15 @@ async function main() {
     update: {},
     where: { id: 1 },
   });
+
+  const demoUserCount = await prisma.user.count({
+    where: { email: { in: users.map(({ email }) => email) } },
+  });
+  if (demoUserCount !== users.length) {
+    throw new Error(`Seed verification failed: expected ${users.length} demo users, found ${demoUserCount}`);
+  }
+
+  console.info(`Seed completed and verified: ${demoUserCount} demo users are available`);
 }
 
 main()

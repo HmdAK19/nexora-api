@@ -69,7 +69,7 @@ cp .env.example .env
 ```bash
 docker compose up -d postgres
 npm run db:migrate
-npm run db:seed
+npm run db:setup
 ```
 
 فایل Compose یک PostgreSQL 16 محلی با volume پایدار ایجاد می‌کند. در محیط production از credential نمونه استفاده نکنید و `DATABASE_URL` سرویس مدیریت‌شده یا cluster خود را تنظیم کنید.
@@ -195,9 +195,13 @@ ws://localhost:4000/ws?symbol=BTC-USDT
 | `npm run db:migrate` | ساخت migration توسعه و اعمال آن |
 | `npm run db:deploy` | اعمال migrationهای ثبت‌شده در استقرار |
 | `npm run db:seed` | seed تکرارپذیر حساب‌ها و داده‌های توسعه |
+| `npm run db:setup` | اعمال migrationها، اجرای seed و توقف فوری در صورت شکست هر مرحله |
+| `npm run build:deploy` | آماده‌سازی دیتابیس و سپس build استقرار |
 | `npm run db:studio` | اجرای Prisma Studio |
 | `npm start` | اجرای build از `dist/index.js` |
 | `npm test` | اجرای یک‌باره‌ی تست‌های Vitest |
+
+Vercel با `build:deploy` استقرار را انجام می‌دهد؛ در نتیجه migration و seed بخشی اجباری از deploy هستند و نبودن `DATABASE_URL_UNPOOLED` یا رمزهای seed باعث شکست واضح deploy می‌شود، نه استقرار یک API بدون کاربران دمو. seed در پایان وجود هر دو حساب دمو را نیز از خود دیتابیس راستی‌آزمایی می‌کند.
 
 اجرای نسخه‌ی build:
 
